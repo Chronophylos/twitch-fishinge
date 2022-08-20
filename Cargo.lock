@@ -1104,7 +1104,6 @@ dependencies = [
  "phf",
  "pretty_env_logger",
  "rand",
- "regex",
  "reqwest",
  "ron",
  "secrecy",

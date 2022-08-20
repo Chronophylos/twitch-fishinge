@@ -2,12 +2,11 @@
 
 mod config;
 
-use std::{collections::HashMap, fmt::Display, ops::Range};
+use std::{fmt::Display, ops::Range};
 
 use log::{error, info, warn};
 use once_cell::sync::Lazy;
 use rand::{seq::SliceRandom, Rng};
-use regex::Regex;
 use twitch_irc::{
     login::RefreshingLoginCredentials,
     message::{PrivmsgMessage, ServerMessage},
@@ -25,76 +24,54 @@ enum Error {
     ValidateChannelName(#[from] twitch_irc::validate::Error),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-enum Difficulty {
-    Trivial,
-    Easy,
-    Medium,
-    Hard,
-    Custom(f64),
-}
+const SLOTS: u32 = 1000;
+static FISHES: Lazy<Vec<Fish>> = Lazy::new(|| {
+    let vec = vec![
+        Fish::new("👞", 400, 0, None),
+        Fish::new("💣", 200, 0, None),
+        Fish::new("🦆", 150, 10, Some(2.0..5.0)),
+        Fish::new("🐟", 100, 20, Some(0.2..5.0)),
+        Fish::new("💀", 50, 50, None),
+        Fish::new("FishMoley", 90, 100, Some(3.5..10.0)),
+        Fish::new("Hhhehehe", 10, 200, None),
+    ];
 
-impl Difficulty {
-    fn probability(&self) -> f64 {
-        match self {
-            Difficulty::Trivial => 0.75,
-            Difficulty::Easy => 0.50,
-            Difficulty::Medium => 0.25,
-            Difficulty::Hard => 0.1,
-            Difficulty::Custom(custom) => *custom,
-        }
-    }
-}
+    assert_eq!(
+        vec.iter().map(|f| f.weight).sum::<u32>(),
+        SLOTS,
+        "Weights do not add up to 1000"
+    );
 
-impl Default for Difficulty {
-    fn default() -> Self {
-        Difficulty::Medium
-    }
-}
-
-static FISHES: Lazy<HashMap<String, Fish>> = Lazy::new(|| {
-    [
-        Fish::new("👞", Difficulty::Trivial, None),
-        Fish::new("🦆", Difficulty::Easy, Some(2.0..5.0)),
-        Fish::new("🐟", Difficulty::Medium, Some(0.2..5.0)),
-        Fish::new("💀", Difficulty::Hard, None),
-        Fish::new("FishMoley", Difficulty::Hard, Some(3.5..10.0)),
-        Fish::new("Hhhehehe", Difficulty::Custom(0.01), None),
-    ]
-    .into_iter()
-    .inspect(|fish| info!("Loaded fish: {}", fish))
-    .map(|fish| (fish.name.clone(), fish))
-    .collect()
+    vec
 });
 
 #[derive(Debug, Clone)]
 struct Fish {
     name: String,
-    difficulty: Difficulty,
-    weight: Option<Range<f32>>,
+    weight: u32,
+    max_value: u32,
+    weight_range: Option<Range<f32>>,
 }
 
 impl Fish {
-    pub fn new(name: &str, difficulty: Difficulty, weight: Option<Range<f32>>) -> Self {
+    pub fn new(name: &str, weight: u32, value: u32, weight_range: Option<Range<f32>>) -> Self {
         Self {
             name: name.to_string(),
-            difficulty,
+            max_value: value,
             weight,
+            weight_range,
         }
     }
 
-    pub fn catch(&self) -> Option<Catch> {
+    pub fn catch(&self) -> Catch {
         let mut rng = rand::thread_rng();
 
-        let probability = self.difficulty.probability();
+        let weight = self
+            .weight_range
+            .clone()
+            .map(|weight| rng.gen_range(weight));
 
-        if !rng.gen_bool(probability) {
-            return None;
-        }
-
-        let weight = self.weight.clone().map(|weight| rng.gen_range(weight));
-
-        Some(Catch::new(self, weight))
+        Catch::new(self, weight)
     }
 }
 
@@ -102,13 +79,13 @@ impl Display for Fish {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{} ({:.0}%)",
+            "{} ({:.1}%)",
             self.name,
-            self.difficulty.probability() * 100.0
+            self.weight as f32 / SLOTS as f32 * 100.0
         )?;
 
-        if let Some(weight) = &self.weight {
-            write!(f, " {:.1} kg - {:.1} kg)", weight.start, weight.end)?;
+        if let Some(weight) = &self.weight_range {
+            write!(f, " ({:.1}kg - {:.1}kg)", weight.start, weight.end)?;
         }
 
         Ok(())
@@ -125,14 +102,30 @@ impl<'a> Catch<'a> {
     pub fn new(fish: &'a Fish, weight: Option<f32>) -> Self {
         Self { fish, weight }
     }
+
+    pub fn value(&self) -> f32 {
+        let weight_multiplier = self
+            .fish
+            .weight_range
+            .as_ref()
+            .and_then(|range| {
+                self.weight
+                    .map(|weight| (weight - range.start) / (range.end - range.start))
+            })
+            .unwrap_or(1.0)
+            * 2.0;
+
+        self.fish.max_value as f32 * weight_multiplier
+    }
 }
 
 impl Display for Catch<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.fish.name)?;
         if let Some(weight) = self.weight {
-            write!(f, " ({:.1} kg)", weight)?;
+            write!(f, " ({:.1}kg)", weight)?;
         }
+        write!(f, " for ${:.2}", self.value())?;
 
         Ok(())
     }
@@ -185,44 +178,25 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-static FISH_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^((?P<fish>[^ ]+) +)?Fishinge").unwrap());
-
 async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) {
-    let fish = match FISH_REGEX.captures(&msg.message_text) {
-        Some(captures) => captures
-            .name("fish")
-            .map(|m| m.as_str().trim())
-            .map(|name| {
-                FISHES
-                    .get(name)
-                    .cloned()
-                    .unwrap_or_else(|| Fish::new(name, Difficulty::default(), None))
-            })
-            .unwrap_or_else(|| {
-                FISHES
-                    .values()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .choose_weighted(&mut rand::thread_rng(), |fish| {
-                        fish.difficulty.probability()
-                    })
-                    .unwrap()
-                    .clone()
-            }),
-        None => return,
-    };
+    if !msg.message_text.starts_with("Fishinge") {
+        return;
+    }
+
+    let fish = FISHES
+        .choose_weighted(&mut rand::thread_rng(), |fish| fish.weight)
+        .unwrap();
 
     info!("{} is fishing for {fish}", msg.sender.name);
 
-    if let Some(catch) = fish.catch() {
-        info!("{} caught {catch}", msg.sender.name);
+    let catch = fish.catch();
 
-        if let Err(err) = client
-            .say_in_reply_to(msg, format!("caught a {catch} !"))
-            .await
-        {
-            error!("Could not send message: {}", err);
-        }
+    info!("{} caught {catch}", msg.sender.name);
+
+    if let Err(err) = client
+        .say_in_reply_to(msg, format!("caught a {catch} !"))
+        .await
+    {
+        error!("Could not send message: {}", err);
     }
 }
