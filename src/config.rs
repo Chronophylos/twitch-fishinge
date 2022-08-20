@@ -4,17 +4,14 @@ use std::{
 };
 
 use async_trait::async_trait;
+use log::debug;
 use secrecy::{CloneableSecret, DebugSecret, ExposeSecret, Secret, SerializableSecret, Zeroize};
 use serde::{Deserialize, Serialize};
 use settings::Settings;
 use twitch_irc::{
-    login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken},
+    login::{GetAccessTokenResponse, RefreshingLoginCredentials, TokenStorage, UserAccessToken},
     ClientConfig,
 };
-
-#[derive(Debug, thiserror::Error)]
-#[error("No token stored")]
-pub struct NoTokenError;
 
 /// Configuration for this crate.
 ///
@@ -28,6 +25,8 @@ impl Config {
     }
 
     pub fn client_config(&self) -> ClientConfig<RefreshingLoginCredentials<Config>> {
+        debug!("Creating client config");
+
         let credentials = RefreshingLoginCredentials::init_with_username(
             self.username.clone(),
             self.client.id.clone(),
@@ -109,24 +108,101 @@ impl DebugSecret for UserAccessTokenWrapper {}
 impl SerializableSecret for UserAccessTokenWrapper {}
 type SecretUserAccessToken = Secret<UserAccessTokenWrapper>;
 
+#[derive(Debug, thiserror::Error)]
+pub enum LoadTokenError {
+    #[error("Could not read token")]
+    ReadInput(#[source] std::io::Error),
+
+    #[error("Could not parse response url")]
+    ParseUrl(#[from] url::ParseError),
+
+    #[error("Missing parameter code in response url")]
+    MissingCodeInResponse,
+
+    #[error("Missing parameter state in response url")]
+    MissingStateInResponse,
+
+    #[error("Parameter state returned by twitch does not match state sent by client")]
+    WrongStateReturned,
+
+    #[error("Could not send access token request")]
+    RequestAccessToken(#[source] reqwest::Error),
+
+    #[error("Could not deserialize access token response")]
+    DeserializeAccessToken(#[source] reqwest::Error),
+
+    #[error("Could not save settings")]
+    SaveSettings(#[from] settings::Error),
+}
+
 #[async_trait]
 impl TokenStorage for Config {
-    type LoadError = NoTokenError;
+    type LoadError = LoadTokenError;
     type UpdateError = settings::Error;
 
     async fn load_token(&mut self) -> Result<UserAccessToken, Self::LoadError> {
-        self.0
-            .token
-            .as_ref()
-            .map(|token| token.expose_secret().deref().clone())
-            .ok_or(NoTokenError)
+        if let Some(token) = self.0.token.as_ref() {
+            Ok(token.expose_secret().deref().clone())
+        } else {
+            let state = format!("{:x}", rand::random::<u64>());
+            let url = format!("https://id.twitch.tv/oauth2/authorize?response_type=code&force_verify=true&client_id={}&redirect_uri=https://localhost&scope=chat%3Aedit+chat%3Aread&state={state}", self.client.id);
+
+            println!("No token stored: Open {url} in your browser and login. Then paste the final URL here!");
+            let mut input = String::new();
+            std::io::stdin()
+                .read_line(&mut input)
+                .map_err(LoadTokenError::ReadInput)?;
+
+            let url = input.trim().parse::<url::Url>()?;
+
+            let returned_state = url
+                .query_pairs()
+                .find(|(k, _)| k == "state")
+                .map(|(_, v)| v)
+                .ok_or(LoadTokenError::MissingStateInResponse)?;
+
+            if returned_state != state {
+                return Err(LoadTokenError::WrongStateReturned);
+            }
+
+            let code = url
+                .query_pairs()
+                .find(|(k, _)| k == "code")
+                .map(|(_, v)| v)
+                .ok_or(LoadTokenError::MissingCodeInResponse)?;
+
+            debug!("Getting token from twitch");
+
+            let response = reqwest::Client::new()
+                .post("https://id.twitch.tv/oauth2/token")
+                .form(&[
+                    ("client_id", self.client.id.as_str()),
+                    ("client_secret", self.client.secret.expose_secret().as_str()),
+                    ("code", code.into_owned().as_str()),
+                    ("grant_type", "authorization_code"),
+                    ("redirect_uri", "https://localhost"),
+                ])
+                .send()
+                .await
+                .map_err(LoadTokenError::RequestAccessToken)?
+                .json::<GetAccessTokenResponse>()
+                .await
+                .map_err(LoadTokenError::DeserializeAccessToken)?;
+
+            let token = response.into();
+            self.update_token(&token).await?;
+
+            Ok(token)
+        }
     }
 
     async fn update_token(&mut self, token: &UserAccessToken) -> Result<(), Self::UpdateError> {
-        self.0.token = Some(SecretUserAccessToken::new(UserAccessTokenWrapper(
+        debug!("Updating token");
+
+        self.token = Some(SecretUserAccessToken::new(UserAccessTokenWrapper(
             token.clone(),
         )));
-        self.0.save()
+        self.save()
     }
 }
 
