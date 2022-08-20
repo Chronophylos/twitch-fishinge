@@ -6,7 +6,7 @@ use std::{collections::HashMap, fmt::Display, ops::Range};
 
 use log::{error, info, warn};
 use once_cell::sync::Lazy;
-use rand::{seq::IteratorRandom, Rng};
+use rand::{seq::SliceRandom, Rng};
 use regex::Regex;
 use twitch_irc::{
     login::RefreshingLoginCredentials,
@@ -37,10 +37,10 @@ enum Difficulty {
 impl Difficulty {
     fn probability(&self) -> f64 {
         match self {
-            Difficulty::Trivial => 0.5,
-            Difficulty::Easy => 0.2,
-            Difficulty::Medium => 0.1,
-            Difficulty::Hard => 0.01,
+            Difficulty::Trivial => 0.75,
+            Difficulty::Easy => 0.50,
+            Difficulty::Medium => 0.25,
+            Difficulty::Hard => 0.1,
             Difficulty::Custom(custom) => *custom,
         }
     }
@@ -62,6 +62,7 @@ static FISHES: Lazy<HashMap<String, Fish>> = Lazy::new(|| {
         Fish::new("Hhhehehe", Difficulty::Custom(0.01), None),
     ]
     .into_iter()
+    .inspect(|fish| info!("Loaded fish: {}", fish))
     .map(|fish| (fish.name.clone(), fish))
     .collect()
 });
@@ -99,7 +100,18 @@ impl Fish {
 
 impl Display for Fish {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
+        write!(
+            f,
+            "{} ({:.0}%)",
+            self.name,
+            self.difficulty.probability() * 100.0
+        )?;
+
+        if let Some(weight) = &self.weight {
+            write!(f, " {:.1} kg - {:.1} kg)", weight.start, weight.end)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -173,7 +185,8 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-static FISH_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^((?P<fish>.+)\W+)?Fishinge").unwrap());
+static FISH_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^((?P<fish>[^ ]+) +)?Fishinge").unwrap());
 
 async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) {
     let fish = match FISH_REGEX.captures(&msg.message_text) {
@@ -189,7 +202,11 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) {
             .unwrap_or_else(|| {
                 FISHES
                     .values()
-                    .choose(&mut rand::thread_rng())
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .choose_weighted(&mut rand::thread_rng(), |fish| {
+                        fish.difficulty.probability()
+                    })
                     .unwrap()
                     .clone()
             }),
