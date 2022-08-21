@@ -3,10 +3,14 @@ name = "twitch-fishinge"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.dev.package.sqlx-macros]
+opt-level = 3
 
 [dependencies]
 async-trait = "0.1.57"
+chrono = "0.4.22"
+directories = "4.0.1"
+humantime = "2.1.0"
 log = "0.4.17"
 once_cell = "1.13.1"
 phf = { version = "0.11.1", features = ["macros"] }
@@ -17,6 +21,7 @@ ron = "0.8.0"
 secrecy = { version = "0.8.0", features = ["serde"] }
 serde = { version = "1.0.143", features = ["derive"] }
 settings = { version = "0.1.0", path = "../settings" }
+sqlx = { version = "0.6.1", features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "chrono"] }
 thiserror = "1.0.32"
 tokio = { version = "1.20.1", features = ["full"] }
 twitch-irc = { version = "4.0.0", default-features = false, features = ["transport-tcp", "transport-tcp-rustls-webpki-roots", "refreshing-token-rustls-webpki-roots"], git = "https://github.com/Chronophylos/twitch-irc-rs.git", branch = "impl-clone-for-useraccesstoken" }

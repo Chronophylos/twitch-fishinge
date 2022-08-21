@@ -2,11 +2,18 @@
 
 mod config;
 
-use std::{fmt::Display, ops::Range};
+use std::{
+    fmt::Display, fs::create_dir_all, ops::Range, path::PathBuf, time::Duration as StdDuration,
+};
 
-use log::{error, info, warn};
-use once_cell::sync::Lazy;
+use chrono::{Duration, NaiveDateTime, Utc};
+use log::{debug, error, info, trace, warn};
+use once_cell::sync::{Lazy, OnceCell};
 use rand::{seq::SliceRandom, Rng};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteJournalMode},
+    ConnectOptions, Connection, SqliteConnection,
+};
 use twitch_irc::{
     login::RefreshingLoginCredentials,
     message::{PrivmsgMessage, ServerMessage},
@@ -15,6 +22,8 @@ use twitch_irc::{
 
 use crate::config::Config;
 
+type Client = TwitchIRCClient<SecureTCPTransport, RefreshingLoginCredentials<Config>>;
+
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("Could not use settings")]
@@ -22,6 +31,32 @@ enum Error {
 
     #[error("Could not validate channel name")]
     ValidateChannelName(#[from] twitch_irc::validate::Error),
+
+    #[error("Could not create data dir")]
+    CreateDataDir(#[source] std::io::Error),
+
+    #[error("Could not connect to database")]
+    ConnectToDatabase(#[source] sqlx::Error),
+
+    #[error("Could not close database connection")]
+    CloseDatabseConnection(#[source] sqlx::Error),
+
+    #[error("Could not query user")]
+    QueryUser(#[source] sqlx::Error),
+
+    #[error("Could not create user")]
+    CreateUser(#[source] sqlx::Error),
+
+    #[error("Could not update user")]
+    UpdateUser(#[source] sqlx::Error),
+
+    #[error("Could not migrate database")]
+    MigrateDatabase(#[from] sqlx::migrate::MigrateError),
+
+    #[error("Could not reply to message")]
+    ReplyToMessage(
+        #[from] twitch_irc::Error<SecureTCPTransport, RefreshingLoginCredentials<Config>>,
+    ),
 }
 
 const SLOTS: u32 = 1000;
@@ -131,11 +166,40 @@ impl Display for Catch<'_> {
     }
 }
 
-type Client = TwitchIRCClient<SecureTCPTransport, RefreshingLoginCredentials<Config>>;
+static DATABASE_PATH: OnceCell<PathBuf> = OnceCell::new();
+
+async fn connect_to_database() -> Result<SqliteConnection, Error> {
+    let path = DATABASE_PATH.get_or_try_init(|| {
+        let settings = Config::load()?;
+
+        let data_dir = settings.project_dirs().data_dir();
+
+        trace!("Creating data dir {data_dir:?}");
+        create_dir_all(data_dir).map_err(Error::CreateDataDir)?;
+
+        Result::<PathBuf, Error>::Ok(data_dir.join("fish.db"))
+    })?;
+
+    debug!("Connecting to database");
+    SqliteConnectOptions::new()
+        .filename(path)
+        .journal_mode(SqliteJournalMode::Wal)
+        .create_if_missing(true)
+        .connect()
+        .await
+        .map_err(Error::ConnectToDatabase)
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     pretty_env_logger::init();
+
+    let mut conn = connect_to_database().await?;
+
+    info!("Running Migrations");
+    sqlx::migrate!().run(&mut conn).await?;
+
+    conn.close().await.map_err(Error::CloseDatabseConnection)?;
 
     let settings = Config::load()?;
     let config = settings.client_config();
@@ -151,7 +215,9 @@ async fn main() -> Result<(), Error> {
             while let Some(message) = incoming_messages.recv().await {
                 match message {
                     ServerMessage::Privmsg(msg) => {
-                        handle_privmsg(&client, &msg).await;
+                        if let Err(err) = handle_privmsg(&client, &msg).await {
+                            error!("Error handling privmsg: {}", err);
+                        }
                     }
                     ServerMessage::Notice(msg) => {
                         warn!(
@@ -178,10 +244,119 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) {
-    if !msg.message_text.starts_with("Fishinge") {
-        return;
+#[allow(dead_code)]
+#[derive(Debug)]
+struct UserModel {
+    id: i64,
+    name: String,
+    last_fished: NaiveDateTime,
+    score: f64,
+}
+
+async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Error> {
+    // TODO: add response to 🐱 Fishinge responding with "No catfishing!"
+
+    match msg.message_text.replace("  ", " ").trim() {
+        "🐱 Fishinge" => {
+            client
+                .say_in_reply_to(msg, "No catfishing!".to_string())
+                .await
+                .map_err(Error::ReplyToMessage)?;
+
+            return Ok(());
+        }
+        "🔍 Fishinge" => {
+            client
+                .say_in_reply_to(
+                    msg,
+                    format!(
+                        "you can catch the following fish: {}",
+                        FISHES
+                            .iter()
+                            .map(Fish::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                )
+                .await
+                .map_err(Error::ReplyToMessage)?;
+
+            return Ok(());
+        }
+        "🏆 Fishinge" => {
+            let mut conn = connect_to_database().await?;
+            let users = sqlx::query_as!(UserModel, "SELECT * FROM users ORDER BY score DESC")
+                .fetch_all(&mut conn)
+                .await
+                .map_err(Error::QueryUser)?;
+
+            conn.close().await.map_err(Error::CloseDatabseConnection)?;
+
+            let users = users
+                .iter()
+                .take(10)
+                .filter(|user| user.score > 0.0)
+                .enumerate()
+                .map(|(id, user)| format!("{}. {} - ${:.2}", id + 1, user.name, user.score))
+                .collect::<Vec<_>>();
+
+            client
+                .say_in_reply_to(
+                    msg,
+                    format!("the top 10 fishers are: {}", users.join(" · ")),
+                )
+                .await
+                .map_err(Error::ReplyToMessage)?;
+
+            return Ok(());
+        }
+        _ => {}
     }
+
+    if !msg.message_text.starts_with("Fishinge") {
+        return Ok(());
+    }
+
+    let now = Utc::now().naive_utc();
+
+    let mut conn = connect_to_database().await?;
+
+    // get user from database
+    let id = if let Some(user) = sqlx::query_as!(
+        UserModel,
+        "SELECT * FROM users WHERE name = ?",
+        msg.sender.login
+    )
+    .fetch_optional(&mut conn)
+    .await
+    .map_err(Error::QueryUser)?
+    {
+        // cooldown
+        let cooled_off = user.last_fished + Duration::hours(6);
+        if cooled_off > now {
+            let cooldown = humantime::format_duration(StdDuration::from_secs(
+                (cooled_off - now).num_seconds() as u64,
+            ));
+            client
+                .say_in_reply_to(msg, format!("you just fished! Try again in {cooldown}."))
+                .await
+                .map_err(Error::ReplyToMessage)?;
+            return Ok(());
+        }
+        user.id
+    } else {
+        // create user
+        let id = sqlx::query!(
+            "INSERT INTO users (name, last_fished, score) VALUES (?, ?, ?)",
+            msg.sender.login,
+            now,
+            0
+        )
+        .execute(&mut conn)
+        .await
+        .map_err(Error::CreateUser)?;
+        id.last_insert_rowid()
+    };
 
     let fish = FISHES
         .choose_weighted(&mut rand::thread_rng(), |fish| fish.weight)
@@ -193,10 +368,21 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) {
 
     info!("{} caught {catch}", msg.sender.name);
 
-    if let Err(err) = client
-        .say_in_reply_to(msg, format!("caught a {catch} !"))
+    let score = catch.value();
+    sqlx::query!(
+        "UPDATE users SET score = score + ?, last_fished = ? WHERE id = ?",
+        score,
+        now,
+        id
+    )
+    .execute(&mut conn)
+    .await
+    .map_err(Error::UpdateUser)?;
+
+    client
+        .say_in_reply_to(msg, format!("caught a {catch}!"))
         .await
-    {
-        error!("Could not send message: {}", err);
-    }
+        .map_err(Error::ReplyToMessage)?;
+
+    Ok(())
 }

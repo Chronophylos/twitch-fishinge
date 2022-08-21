@@ -5,6 +5,7 @@ use std::{
 
 use async_trait::async_trait;
 use log::debug;
+use once_cell::sync::OnceCell;
 use secrecy::{CloneableSecret, DebugSecret, ExposeSecret, Secret, SerializableSecret, Zeroize};
 use serde::{Deserialize, Serialize};
 use settings::Settings;
@@ -19,9 +20,11 @@ use twitch_irc::{
 #[derive(Debug, Clone)]
 pub struct Config(Settings<ConfigData>);
 
+static SETTINGS: OnceCell<Config> = OnceCell::new();
+
 impl Config {
-    pub fn load() -> Result<Self, settings::Error> {
-        Settings::load("com", "Chronophylos", "Fishinge").map(Self)
+    pub fn load<'a>() -> Result<&'a Self, settings::Error> {
+        SETTINGS.get_or_try_init(|| Settings::load("com", "Chronophylos", "Fishinge").map(Self))
     }
 
     pub fn client_config(&self) -> ClientConfig<RefreshingLoginCredentials<Config>> {
