@@ -59,39 +59,48 @@ enum Error {
     ),
 }
 
-const SLOTS: u32 = 1000;
-static FISHES: Lazy<Vec<Fish>> = Lazy::new(|| {
-    let vec = vec![
-        Fish::new("👞", 400, 0, None),
-        Fish::new("💣", 200, 0, None),
-        Fish::new("🦆", 150, 10, Some(2.0..5.0)),
-        Fish::new("🐟", 100, 20, Some(0.2..5.0)),
-        Fish::new("💀", 50, 50, None),
-        Fish::new("FishMoley", 90, 100, Some(3.5..10.0)),
-        Fish::new("Hhhehehe", 10, 200, None),
-    ];
+static FISHES: [Fish; 19] = [
+    Fish::new("👞", 400, 0, None),
+    Fish::new("💣", 25, 0, None),
+    Fish::new("🦆", 50, 0, Some(2.0..5.0)),
+    Fish::new("🐸", 50, 0, None),
+    Fish::new("🐚", 50, 10, None),
+    Fish::new("🐢", 50, 30, Some(10.0..500.0)),
+    Fish::new("🐟", 100, 20, Some(0.2..5.0)),
+    Fish::new("🐠", 90, 30, Some(0.2..5.0)),
+    Fish::new("🐡", 80, 40, Some(0.2..5.0)),
+    Fish::new("🦑", 50, 50, None),
+    Fish::new("🦈", 50, 150, Some(522.0..771.0)),
+    Fish::new("🐯🦈", 10, 200, Some(175.0..635.0)),
+    Fish::new("💀", 50, 50, None),
+    Fish::new("💰", 10, 1000, Some(1.0..10.0)),
+    Fish::new("🦀", 10, 400, Some(10.0..14.0)),
+    Fish::new("🐳", 10, 800, Some(88_000.0..130_000.0)),
+    Fish::new("FishMoley", 90, 100, Some(3.5..10.0)),
+    Fish::new("Hhhehehe", 10, 200, None),
+    Fish::new("FLOPPA", 1, 2000, None),
+];
+static SLOTS: Lazy<u32> = Lazy::new(|| FISHES.iter().map(|f| f.weight).sum());
 
-    assert_eq!(
-        vec.iter().map(|f| f.weight).sum::<u32>(),
-        SLOTS,
-        "Weights do not add up to 1000"
-    );
-
-    vec
-});
+static COOLDOWN: Lazy<Duration> = Lazy::new(|| Duration::hours(6));
 
 #[derive(Debug, Clone)]
 struct Fish {
-    name: String,
+    name: &'static str,
     weight: u32,
     max_value: u32,
     weight_range: Option<Range<f32>>,
 }
 
 impl Fish {
-    pub fn new(name: &str, weight: u32, value: u32, weight_range: Option<Range<f32>>) -> Self {
+    pub const fn new(
+        name: &'static str,
+        weight: u32,
+        value: u32,
+        weight_range: Option<Range<f32>>,
+    ) -> Self {
         Self {
-            name: name.to_string(),
+            name,
             max_value: value,
             weight,
             weight_range,
@@ -116,7 +125,7 @@ impl Display for Fish {
             f,
             "{} ({:.1}%)",
             self.name,
-            self.weight as f32 / SLOTS as f32 * 100.0
+            self.weight as f32 / *SLOTS as f32 * 100.0
         )?;
 
         if let Some(weight) = &self.weight_range {
@@ -160,7 +169,7 @@ impl Display for Catch<'_> {
         if let Some(weight) = self.weight {
             write!(f, " ({:.1}kg)", weight)?;
         }
-        write!(f, " for ${:.2}", self.value())?;
+        write!(f, " worth ${:.2}", self.value())?;
 
         Ok(())
     }
@@ -251,11 +260,10 @@ struct UserModel {
     name: String,
     last_fished: NaiveDateTime,
     score: f64,
+    is_bot: bool,
 }
 
 async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Error> {
-    // TODO: add response to 🐱 Fishinge responding with "No catfishing!"
-
     match msg.message_text.replace("  ", " ").trim() {
         "🐱 Fishinge" => {
             client
@@ -296,6 +304,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                 .iter()
                 .take(10)
                 .filter(|user| user.score > 0.0)
+                .filter(|user| !user.is_bot)
                 .enumerate()
                 .map(|(id, user)| format!("{}. {} - ${:.2}", id + 1, user.name, user.score))
                 .collect::<Vec<_>>();
@@ -332,7 +341,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
     .map_err(Error::QueryUser)?
     {
         // cooldown
-        let cooled_off = user.last_fished + Duration::hours(6);
+        let cooled_off = user.last_fished + *COOLDOWN;
         if cooled_off > now {
             let cooldown = humantime::format_duration(StdDuration::from_secs(
                 (cooled_off - now).num_seconds() as u64,
