@@ -69,7 +69,7 @@ static COOLDOWN: Lazy<Duration> = Lazy::new(|| Duration::hours(6));
 struct Fish {
     name: String,
     count: u32,
-    max_value: u32,
+    base_value: u32,
     weight_range: Option<Range<f32>>,
 }
 
@@ -82,7 +82,7 @@ impl Fish {
     ) -> Self {
         Self {
             name,
-            max_value: value,
+            base_value: value,
             count,
             weight_range,
         }
@@ -105,8 +105,12 @@ impl From<FishModel> for Fish {
         Self::new(
             fish.name,
             fish.count as u32,
-            fish.max_value as u32,
-            Some(fish.min_weight as f32..fish.max_weight as f32),
+            fish.base_value as u32,
+            if fish.min_weight > f64::EPSILON && fish.max_weight > f64::EPSILON {
+                Some(fish.min_weight as f32..fish.max_weight as f32)
+            } else {
+                None
+            },
         )
     }
 }
@@ -151,7 +155,7 @@ impl<'a> Catch<'a> {
             .unwrap_or(1.0)
             * 2.0;
 
-        self.fish.max_value as f32 * weight_multiplier
+        self.fish.base_value as f32 * weight_multiplier
     }
 }
 
@@ -257,6 +261,7 @@ async fn main() -> Result<(), Error> {
 
 static COMMAND_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^((?P<emote>\S+)\s+)?Fishinge( (?P<args>.*))?$").unwrap());
+const WEB_URL: &str = "http://94.16.116.238:3030";
 
 async fn get_fishes(conn: &mut SqliteConnection) -> Result<Vec<Fish>, Error> {
     let fishes: Vec<_> = sqlx::query_as!(FishModel, "SELECT * FROM fishes")
@@ -286,10 +291,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
             }
             Some("🔍") => {
                 client
-                    .say_in_reply_to(
-                        msg,
-                        "fishes are here http://94.16.116.238:3030/fishes".to_string(),
-                    )
+                    .say_in_reply_to(msg, format!("fishes are here {WEB_URL}/fishes"))
                     .await
                     .map_err(Error::ReplyToMessage)?;
 
@@ -299,8 +301,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                 client
                     .say_in_reply_to(
                         msg,
-                        "check out the leaderboard at http://94.16.116.238:3030/leaderboard"
-                            .to_string(),
+                        format!("check out the leaderboard at {WEB_URL}/leaderboard"),
                     )
                     .await
                     .map_err(Error::ReplyToMessage)?;
@@ -342,6 +343,14 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
 
                 Ok(())
             }
+            Some("❓") => {
+                client
+                    .say_in_reply_to(msg, format!("the list of commands is here {WEB_URL}"))
+                    .await
+                    .map_err(Error::ReplyToMessage)?;
+
+                Ok(())
+            }
             None => handle_fishinge(client, msg).await,
             _ => Ok(()),
         }
@@ -352,6 +361,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
 
 async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Error> {
     let now = Utc::now().naive_utc();
+    let mut rng = OsRng;
 
     let mut conn = db_conn().await?;
 
@@ -371,8 +381,24 @@ async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Er
             let cooldown = humantime::format_duration(StdDuration::from_secs(
                 (cooled_off - now).num_seconds() as u64,
             ));
+
+            const MESSAGES: [&str; 6] = [
+                "you can't fish yet.",
+                "you just fished!",
+                "you lost your fishing pole!",
+                "you have no bobbers.",
+                "not yet!",
+                "pirates stole your boat R) !",
+            ];
+
             client
-                .say_in_reply_to(msg, format!("you just fished! Try again in {cooldown}."))
+                .say_in_reply_to(
+                    msg,
+                    format!(
+                        "{} Try again in {cooldown}.",
+                        MESSAGES.choose(&mut rng).unwrap()
+                    ),
+                )
                 .await
                 .map_err(Error::ReplyToMessage)?;
             return Ok(());
@@ -398,7 +424,6 @@ async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Er
         return Err(Error::NoFishesInDatabase);
     }
 
-    let mut rng = OsRng;
     let fish = fishes.choose_weighted(&mut rng, |fish| fish.count).unwrap();
 
     info!("{} is fishing for {fish}", msg.sender.name);

@@ -8,7 +8,7 @@ pub struct Fish {
     pub id: i64,
     pub name: String,
     pub count: i64,
-    pub max_value: i64,
+    pub base_value: i64,
     pub min_weight: f64,
     pub max_weight: f64,
     pub is_trash: bool,

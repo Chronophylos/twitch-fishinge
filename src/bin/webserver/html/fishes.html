@@ -6,24 +6,27 @@
 </head>
 
 <body>
+    <a href="/">go back</a>
     <h1>Fishes</h1>
     <table>
         <tr>
             <th>Name</th>
-            <th>Count</th>
             <th>Probabiliy</th>
-            <th>Max Value</th>
-            <th>Min Weight</th>
-            <th>Max Weight</th>
+            <th>Base Value</th>
+            <th>Weight</th>
         </tr>
         {{ for fish in fishes }}
         <tr>
             <td>{ fish.name }</td>
-            <td>{ fish.count }</td>
             <td>{ fish.chance | percentage_formatter }</td>
-            <td>{ fish.max_value | score_formatter }</td>
-            <td>{ fish.min_weight }</td>
-            <td>{ fish.max_weight }</td>
+            <td>{ fish.base_value | score_formatter }</td>
+            <td>
+                {{if fish.min_weight -}}
+                {{if fish.max_weight -}}
+                { fish.min_weight }kg - { fish.max_weight }kg
+                {{- endif }}
+                {{- endif }}
+            </td>
         </tr>
         {{ endfor }}
     </table>
