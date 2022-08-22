@@ -1,5 +1,69 @@
 {
   "db": "SQLite",
+  "6133a3e26e7abd0489e25a5ea1a69f16ee93f66b7ace4b32e4ff8911d1fa9452": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        },
+        {
+          "name": "name",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "count",
+          "ordinal": 2,
+          "type_info": "Int64"
+        },
+        {
+          "name": "max_value",
+          "ordinal": 3,
+          "type_info": "Int64"
+        },
+        {
+          "name": "max_weight",
+          "ordinal": 4,
+          "type_info": "Float"
+        },
+        {
+          "name": "min_weight",
+          "ordinal": 5,
+          "type_info": "Float"
+        },
+        {
+          "name": "is_trash",
+          "ordinal": 6,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Right": 0
+      }
+    },
+    "query": "SELECT * FROM fishes"
+  },
+  "751206eaefd0f67412c7b439a2699860e52a3761387279498529f2fdb18b6dc6": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 3
+      }
+    },
+    "query": "\n                    INSERT OR IGNORE INTO users (name, last_fished, is_bot, score) VALUES (?, ?, true, 0);\n                    UPDATE users SET is_bot = true WHERE name = ?;\n                    "
+  },
   "c55ba08db9751b20d1fc022778a5361262cf8402cb710d466e532cbf73c36069": {
     "describe": {
       "columns": [],

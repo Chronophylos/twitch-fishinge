@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Fishinge</title>
+</head>
+
+<body>
+    <h1>Fishes</h1>
+    <table>
+        <tr>
+            <th>Name</th>
+            <th>Count</th>
+            <th>Probabiliy</th>
+            <th>Max Value</th>
+            <th>Min Weight</th>
+            <th>Max Weight</th>
+        </tr>
+        {{ for fish in fishes }}
+        <tr>
+            <td>{ fish.name }</td>
+            <td>{ fish.count }</td>
+            <td>{ fish.chance | percentage_formatter }</td>
+            <td>{ fish.max_value | score_formatter }</td>
+            <td>{ fish.min_weight }</td>
+            <td>{ fish.max_weight }</td>
+        </tr>
+        {{ endfor }}
+    </table>
+</body>
+
+</html>

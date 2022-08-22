@@ -3,3 +3,5 @@ settings.ron
 .env
 twitch-fishinge.tar
 fish.db
+*.db-shm
+*.db-wal

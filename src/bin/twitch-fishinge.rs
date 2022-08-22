@@ -1,25 +1,24 @@
 #![forbid(unsafe_code)]
 
-mod config;
-
 use std::{fmt::Display, ops::Range, time::Duration as StdDuration};
 
 use chrono::{Duration, NaiveDateTime, Utc};
-use log::{debug, error, info, warn};
-use once_cell::sync::Lazy;
-use rand::{seq::SliceRandom, Rng};
+use log::{debug, error, info, trace, warn};
+use once_cell::sync::{Lazy, OnceCell};
+use rand::{rngs::OsRng, seq::SliceRandom, Rng};
 use regex::Regex;
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqliteJournalMode},
-    ConnectOptions, Connection, SqliteConnection,
+use sqlx::{Connection, SqliteConnection};
+use tokio::sync::OnceCell as AsyncOnceCell;
+use twitch_fishinge::{
+    db_conn,
+    models::{Fish as FishModel, User as UserModel},
+    Config,
 };
 use twitch_irc::{
     login::RefreshingLoginCredentials,
     message::{PrivmsgMessage, ServerMessage},
     SecureTCPTransport, TwitchIRCClient,
 };
-
-use crate::config::Config;
 
 type Client = TwitchIRCClient<SecureTCPTransport, RefreshingLoginCredentials<Config>>;
 
@@ -31,11 +30,11 @@ enum Error {
     #[error("Could not validate channel name")]
     ValidateChannelName(#[from] twitch_irc::validate::Error),
 
-    #[error("Could not connect to database")]
-    ConnectToDatabase(#[source] sqlx::Error),
+    #[error("Could not open database connection")]
+    OpenDatabase(#[from] twitch_fishinge::OpenDatabaseError),
 
     #[error("Could not close database connection")]
-    CloseDatabseConnection(#[source] sqlx::Error),
+    CloseDatabase(#[source] sqlx::Error),
 
     #[error("Could not query user")]
     QueryUser(#[source] sqlx::Error),
@@ -46,6 +45,9 @@ enum Error {
     #[error("Could not update user")]
     UpdateUser(#[source] sqlx::Error),
 
+    #[error("Could not query fishes")]
+    QueryFishes(#[source] sqlx::Error),
+
     #[error("Could not migrate database")]
     MigrateDatabase(#[from] sqlx::migrate::MigrateError),
 
@@ -53,45 +55,19 @@ enum Error {
     ReplyToMessage(
         #[from] twitch_irc::Error<SecureTCPTransport, RefreshingLoginCredentials<Config>>,
     ),
+
+    #[error("No fishes found in database")]
+    NoFishesInDatabase,
 }
 
-static FISHES: [Fish; 19] = [
-    Fish::new("👞", 500, 0, None),
-    Fish::new("💣", 25, 0, None),
-    Fish::new("🦆", 50, 0, Some(2.0..5.0)),
-    Fish::new("🐸", 50, 0, None),
-    Fish::new("🐚", 50, 10, None),
-    Fish::new("🐢", 50, 30, Some(10.0..500.0)),
-    Fish::new("🐟", 150, 20, Some(0.2..5.0)),
-    Fish::new("🐠", 90, 30, Some(0.2..5.0)),
-    Fish::new("🐡", 80, 40, Some(0.2..5.0)),
-    Fish::new("🦑", 50, 50, None),
-    Fish::new("🦈", 50, 150, Some(522.0..771.0)),
-    Fish::new("🐯🦈", 10, 200, Some(175.0..635.0)),
-    Fish::new("💀", 50, 50, None),
-    Fish::new("💰", 10, 1000, Some(1.0..10.0)),
-    Fish::new("🦀", 10, 400, Some(10.0..14.0)),
-    Fish::new("🐳", 10, 800, Some(88_000.0..130_000.0)),
-    Fish::new("FishMoley", 90, 100, Some(3.5..10.0)),
-    Fish::new("Hhhehehe", 10, 200, None),
-    Fish::new("FLOPPA", 1, 2000, None),
-];
-static TOTAL_FISHES: Lazy<u32> = Lazy::new(|| FISHES.iter().map(|f| f.count).sum());
+static FISHES: AsyncOnceCell<Vec<Fish>> = AsyncOnceCell::const_new();
+static FISH_POPULATION: OnceCell<u32> = OnceCell::new();
 
 static COOLDOWN: Lazy<Duration> = Lazy::new(|| Duration::hours(6));
 
-// struct FishModel {
-//     name: String,
-//     count: u32,
-//     max_value: u32,
-//     min_weight: f32,
-//     max_weight: f32,
-//     is_trash: bool,
-// }
-
 #[derive(Debug, Clone)]
 struct Fish {
-    name: &'static str,
+    name: String,
     count: u32,
     max_value: u32,
     weight_range: Option<Range<f32>>,
@@ -99,7 +75,7 @@ struct Fish {
 
 impl Fish {
     pub const fn new(
-        name: &'static str,
+        name: String,
         count: u32,
         value: u32,
         weight_range: Option<Range<f32>>,
@@ -124,16 +100,16 @@ impl Fish {
     }
 }
 
-//impl From<FishModel> for Fish {
-//    fn from(fish: FishModel) -> Self {
-//        Self {
-//            name: &fish.name,
-//            count: fish.count,
-//            max_value: fish.max_value,
-//            weight_range: Some(fish.min_weight..fish.max_weight),
-//        }
-//    }
-//}
+impl From<FishModel> for Fish {
+    fn from(fish: FishModel) -> Self {
+        Self::new(
+            fish.name,
+            fish.count as u32,
+            fish.max_value as u32,
+            Some(fish.min_weight as f32..fish.max_weight as f32),
+        )
+    }
+}
 
 impl Display for Fish {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -141,7 +117,7 @@ impl Display for Fish {
             f,
             "{} ({:.1}%)",
             self.name,
-            self.count as f32 / *TOTAL_FISHES as f32 * 100.0
+            self.count as f32 / *FISH_POPULATION.get().unwrap() as f32 * 100.0
         )?;
 
         if let Some(weight) = &self.weight_range {
@@ -191,27 +167,39 @@ impl Display for Catch<'_> {
     }
 }
 
-async fn connect_to_database() -> Result<SqliteConnection, Error> {
-    debug!("Connecting to database");
-    SqliteConnectOptions::new()
-        .filename("fish.db")
-        .journal_mode(SqliteJournalMode::Wal)
-        .create_if_missing(true)
-        .connect()
-        .await
-        .map_err(Error::ConnectToDatabase)
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     pretty_env_logger::init();
 
-    let mut conn = connect_to_database().await?;
+    let mut conn = db_conn().await?;
 
     info!("Running Migrations");
     sqlx::migrate!().run(&mut conn).await?;
 
-    conn.close().await.map_err(Error::CloseDatabseConnection)?;
+    FISHES
+        .get_or_try_init(|| async {
+            let fishes: Vec<_> = sqlx::query_as!(FishModel, "SELECT * FROM fishes")
+                .fetch_all(&mut conn)
+                .await
+                .map_err(Error::QueryFishes)?
+                .into_iter()
+                .map(Fish::from)
+                .collect();
+
+            let population = fishes.iter().map(|fish| fish.count).sum();
+
+            FISH_POPULATION.get_or_init(|| population);
+
+            info!(
+                "Loaded {} fish species with a total population of {population}",
+                fishes.len()
+            );
+
+            Result::<_, Error>::Ok(fishes)
+        })
+        .await?;
+
+    conn.close().await.map_err(Error::CloseDatabase)?;
 
     let settings = Config::load()?;
     let config = settings.client_config();
@@ -225,9 +213,10 @@ async fn main() -> Result<(), Error> {
 
         async move {
             while let Some(message) = incoming_messages.recv().await {
+                trace!("Received message: {:?}", &message);
                 match message {
                     ServerMessage::Privmsg(msg) => {
-                        if let Err(err) = handle_privmsg(&client, dbg!(&msg)).await {
+                        if let Err(err) = handle_privmsg(&client, &msg).await {
                             error!("Error handling privmsg: {:#?}", err);
                         }
                     }
@@ -247,6 +236,16 @@ async fn main() -> Result<(), Error> {
         }
     });
 
+    debug!(
+        "Wanting to join channels {}",
+        settings
+            .channels
+            .iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
     client.set_wanted_channels(settings.channels.clone())?;
 
     // keep the tokio executor alive.
@@ -256,22 +255,27 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[allow(dead_code)]
-#[derive(Debug)]
-struct UserModel {
-    id: i64,
-    name: String,
-    last_fished: NaiveDateTime,
-    score: f64,
-    is_bot: bool,
-}
-
 static COMMAND_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^((?P<emote>\S+)\s+)?Fishinge( (?P<args>.*))?$").unwrap());
 
+async fn get_fishes(conn: &mut SqliteConnection) -> Result<Vec<Fish>, Error> {
+    let fishes: Vec<_> = sqlx::query_as!(FishModel, "SELECT * FROM fishes")
+        .fetch_all(conn)
+        .await
+        .map_err(Error::QueryFishes)?
+        .into_iter()
+        .map(Fish::from)
+        .collect();
+
+    let population = fishes.iter().map(|fish| fish.count).sum();
+
+    FISH_POPULATION.get_or_init(|| population);
+    Ok(fishes)
+}
+
 async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Error> {
-    if let Some(captures) = dbg!(COMMAND_REGEX.captures(dbg!(&msg.message_text))) {
-        match dbg!(captures.name("emote").map(|m| m.as_str())) {
+    if let Some(captures) = COMMAND_REGEX.captures(&msg.message_text) {
+        match captures.name("emote").map(|m| m.as_str()) {
             Some("🐱") => {
                 client
                     .say_in_reply_to(msg, "No catfishing!".to_string())
@@ -284,14 +288,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                 client
                     .say_in_reply_to(
                         msg,
-                        format!(
-                            "you can catch the following fish: {}",
-                            FISHES
-                                .iter()
-                                .map(Fish::to_string)
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ),
+                        "fishes are here http://94.16.116.238:3030/fishes".to_string(),
                     )
                     .await
                     .map_err(Error::ReplyToMessage)?;
@@ -299,27 +296,11 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                 Ok(())
             }
             Some("🏆") => {
-                let mut conn = connect_to_database().await?;
-                let users = sqlx::query_as!(UserModel, "SELECT * FROM users ORDER BY score DESC")
-                    .fetch_all(&mut conn)
-                    .await
-                    .map_err(Error::QueryUser)?;
-
-                conn.close().await.map_err(Error::CloseDatabseConnection)?;
-
-                let users = users
-                    .iter()
-                    .take(10)
-                    .filter(|user| user.score > 0.0)
-                    .filter(|user| !user.is_bot)
-                    .enumerate()
-                    .map(|(id, user)| format!("{}. {} - ${:.2}", id + 1, user.name, user.score))
-                    .collect::<Vec<_>>();
-
                 client
                     .say_in_reply_to(
                         msg,
-                        format!("the top 10 fishers are: {}", users.join(" · ")),
+                        "check out the leaderboard at http://94.16.116.238:3030/leaderboard"
+                            .to_string(),
                     )
                     .await
                     .map_err(Error::ReplyToMessage)?;
@@ -327,7 +308,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                 Ok(())
             }
             Some("🤖") => {
-                if dbg!(&msg.sender.login) != "chronophylos" {
+                if &msg.sender.login != "chronophylos" {
                     return Ok(());
                 }
 
@@ -340,7 +321,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                         .trim_start_matches('@')
                         .to_lowercase();
 
-                    let mut conn = connect_to_database().await?;
+                    let mut conn = db_conn().await?;
                     let epoch = NaiveDateTime::from_timestamp(0, 0);
 
                     sqlx::query!(
@@ -372,7 +353,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
 async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Error> {
     let now = Utc::now().naive_utc();
 
-    let mut conn = connect_to_database().await?;
+    let mut conn = db_conn().await?;
 
     // get user from database
     let id = if let Some(user) = sqlx::query_as!(
@@ -411,9 +392,14 @@ async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Er
         id.last_insert_rowid()
     };
 
-    let fish = FISHES
-        .choose_weighted(&mut rand::thread_rng(), |fish| fish.count)
-        .unwrap();
+    let fishes = get_fishes(&mut conn).await?;
+
+    if fishes.is_empty() {
+        return Err(Error::NoFishesInDatabase);
+    }
+
+    let mut rng = OsRng;
+    let fish = fishes.choose_weighted(&mut rng, |fish| fish.count).unwrap();
 
     info!("{} is fishing for {fish}", msg.sender.name);
 

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Fishinge</title>
+</head>
+
+<body>
+    <h1>Leaderboard</h1>
+    <table>
+        <tr>
+            <th>Place</th>
+            <th>Username</th>
+            <th>Score</th>
+        </tr>
+        {{ for entry in users }}
+        <tr>
+            <td>{ entry.0 }</td>
+            <td>{ entry.1.name }</td>
+            <td>{ entry.1.score | score_formatter }</td>
+        </tr>
+        {{ endfor }}
+    </table>
+</body>
+
+</html>
