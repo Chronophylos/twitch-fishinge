@@ -3,6 +3,11 @@ name = "twitch-fishinge"
 version = "0.1.0"
 edition = "2021"
 
+[profile.release]
+strip = true 
+opt-level = "z"
+lto = true
+
 [profile.dev.package.sqlx-macros]
 opt-level = 3
 

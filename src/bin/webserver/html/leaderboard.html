@@ -7,7 +7,15 @@
 
 <body>
     <a href="/">go back</a>
+
+    <h3>Filters</h3>
+    <ul>
+        <li><a href="/leaderboard?include_bots=false">exclude bots</a></li>
+        <li><a href="/leaderboard?include_bots=true">include bots</a></li>
+    </ul>
+
     <h1>Leaderboard</h1>
+
     <table>
         <tr>
             <th>Place</th>
@@ -22,6 +30,7 @@
         </tr>
         {{ endfor }}
     </table>
+
 </body>
 
 </html>

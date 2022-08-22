@@ -3,7 +3,7 @@ use std::fmt::Write;
 use futures_lite::future::block_on;
 use log::error;
 use reqwest::StatusCode;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tinytemplate::{format, TinyTemplate};
 use twitch_fishinge::{
@@ -47,7 +47,13 @@ fn score_formatter(value: &Value, output: &mut String) -> Result<(), tinytemplat
     }
 }
 
-async fn leaderboard() -> Result<Html<String>, Error> {
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
+struct LeaderboardQuery {
+    include_bots: bool,
+}
+
+async fn leaderboard(query: LeaderboardQuery) -> Result<Html<String>, Error> {
     #[derive(Serialize)]
     struct Context {
         users: Vec<(usize, User)>,
@@ -66,7 +72,7 @@ async fn leaderboard() -> Result<Html<String>, Error> {
         .map_err(Error::QueryUsers)?
         .into_iter()
         .filter(|user| user.score > 0.0)
-        .filter(|user| !user.is_bot)
+        .filter(|user| !user.is_bot || query.include_bots)
         .enumerate()
         .map(|(i, user)| (i + 1, user))
         .collect();
@@ -149,16 +155,20 @@ async fn main() -> Result<(), Error> {
     let root = warp::path::end().map(|| warp::reply::html(include_str!("html/index.html")));
 
     // GET /leaderboard
-    let leaderboard_route = warp::path("leaderboard").map(|| match block_on(leaderboard()) {
-        Ok(html) => Box::new(html) as Box<dyn Reply>,
-        Err(err) => {
-            error!("Could not render leaderboard: {:?}", err);
-            Box::new(warp::reply::with_status(
-                warp::reply(),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            )) as Box<dyn Reply>
-        }
-    });
+    let leaderboard_route = warp::path("leaderboard")
+        .and(warp::query::<LeaderboardQuery>())
+        .map(
+            |query: LeaderboardQuery| match block_on(leaderboard(query)) {
+                Ok(html) => Box::new(html) as Box<dyn Reply>,
+                Err(err) => {
+                    error!("Could not render leaderboard: {:?}", err);
+                    Box::new(warp::reply::with_status(
+                        warp::reply(),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    )) as Box<dyn Reply>
+                }
+            },
+        );
 
     // GET /fishes
     let fishes_route = warp::path("fishes").map(|| match block_on(fishes()) {
