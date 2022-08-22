@@ -8,6 +8,7 @@ run-bot:
   RUST_LOG=debug cargo run --bin twitch-fishinge
 
 docker:
+  cargo clippy -- -D warnings
   cargo sqlx prepare --merged
   docker build -t twitch-fishinge:latest -f Dockerfile.bot .
   docker build -t twitch-fishinge-web:latest -f Dockerfile.web .

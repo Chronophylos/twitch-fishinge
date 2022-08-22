@@ -174,7 +174,7 @@ async fn main() -> Result<(), Error> {
 
     let routes = warp::get().and(root.or(leaderboard_route).or(fishes_route));
 
-    warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;
+    warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 
     Ok(())
 }

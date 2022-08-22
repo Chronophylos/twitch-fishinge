@@ -261,7 +261,7 @@ async fn main() -> Result<(), Error> {
 
 static COMMAND_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^((?P<emote>\S+)\s+)?Fishinge( (?P<args>.*))?$").unwrap());
-const WEB_URL: &str = "http://94.16.116.238:3030";
+const WEB_URL: &str = "https://fishinge.chronophylos.com";
 
 async fn get_fishes(conn: &mut SqliteConnection) -> Result<Vec<Fish>, Error> {
     let fishes: Vec<_> = sqlx::query_as!(FishModel, "SELECT * FROM fishes")
@@ -382,13 +382,14 @@ async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Er
                 (cooled_off - now).num_seconds() as u64,
             ));
 
-            const MESSAGES: [&str; 6] = [
+            const MESSAGES: [&str; 7] = [
                 "you can't fish yet.",
                 "you just fished!",
                 "you lost your fishing pole!",
                 "you have no bobbers.",
                 "not yet!",
                 "pirates stole your boat R) !",
+                "Oh snap! Your line broke.",
             ];
 
             client

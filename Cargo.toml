@@ -45,4 +45,4 @@ twitch-irc = { version = "4.0.0", default-features = false, features = [
   "refreshing-token-rustls-webpki-roots",
 ], git = "https://github.com/Chronophylos/twitch-irc-rs.git", branch = "impl-clone-for-useraccesstoken" }
 url = "2.2.2"
-warp = { version = "0.3.2", features = ["tokio-rustls"] }
+warp = "0.3.2"
