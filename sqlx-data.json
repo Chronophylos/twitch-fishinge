@@ -1,0 +1,107 @@
+{
+  "db": "SQLite",
+  "c55ba08db9751b20d1fc022778a5361262cf8402cb710d466e532cbf73c36069": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 3
+      }
+    },
+    "query": "UPDATE users SET score = score + ?, last_fished = ? WHERE id = ?"
+  },
+  "c6cb6f4f908453da45b2a64a43944362978ea7781a18cc988833450868ae258e": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 3
+      }
+    },
+    "query": "INSERT INTO users (name, last_fished, score) VALUES (?, ?, ?)"
+  },
+  "f6bb7417e56c3e55c0060e407c26ea765b431e7742e0d2f088c850ba321327a5": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        },
+        {
+          "name": "name",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "last_fished",
+          "ordinal": 2,
+          "type_info": "Datetime"
+        },
+        {
+          "name": "score",
+          "ordinal": 3,
+          "type_info": "Float"
+        },
+        {
+          "name": "is_bot",
+          "ordinal": 4,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Right": 0
+      }
+    },
+    "query": "SELECT * FROM users ORDER BY score DESC"
+  },
+  "fbf4d83d9836cf85d01059e679bcbf7dc463eea0579afacc0267f0f8c33640d3": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        },
+        {
+          "name": "name",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "last_fished",
+          "ordinal": 2,
+          "type_info": "Datetime"
+        },
+        {
+          "name": "score",
+          "ordinal": 3,
+          "type_info": "Float"
+        },
+        {
+          "name": "is_bot",
+          "ordinal": 4,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Right": 1
+      }
+    },
+    "query": "SELECT * FROM users WHERE name = ?"
+  }
+}

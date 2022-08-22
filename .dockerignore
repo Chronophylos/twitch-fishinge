@@ -1,0 +1,8 @@
+target
+.git
+.vscode
+settings.ron
+fish.db
+Justfile
+twitch-fishinge.tar
+.env

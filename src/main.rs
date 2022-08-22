@@ -2,14 +2,13 @@
 
 mod config;
 
-use std::{
-    fmt::Display, fs::create_dir_all, ops::Range, path::PathBuf, time::Duration as StdDuration,
-};
+use std::{fmt::Display, ops::Range, time::Duration as StdDuration};
 
 use chrono::{Duration, NaiveDateTime, Utc};
-use log::{debug, error, info, trace, warn};
-use once_cell::sync::{Lazy, OnceCell};
+use log::{debug, error, info, warn};
+use once_cell::sync::Lazy;
 use rand::{seq::SliceRandom, Rng};
+use regex::Regex;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode},
     ConnectOptions, Connection, SqliteConnection,
@@ -31,9 +30,6 @@ enum Error {
 
     #[error("Could not validate channel name")]
     ValidateChannelName(#[from] twitch_irc::validate::Error),
-
-    #[error("Could not create data dir")]
-    CreateDataDir(#[source] std::io::Error),
 
     #[error("Could not connect to database")]
     ConnectToDatabase(#[source] sqlx::Error),
@@ -60,13 +56,13 @@ enum Error {
 }
 
 static FISHES: [Fish; 19] = [
-    Fish::new("👞", 400, 0, None),
+    Fish::new("👞", 500, 0, None),
     Fish::new("💣", 25, 0, None),
     Fish::new("🦆", 50, 0, Some(2.0..5.0)),
     Fish::new("🐸", 50, 0, None),
     Fish::new("🐚", 50, 10, None),
     Fish::new("🐢", 50, 30, Some(10.0..500.0)),
-    Fish::new("🐟", 100, 20, Some(0.2..5.0)),
+    Fish::new("🐟", 150, 20, Some(0.2..5.0)),
     Fish::new("🐠", 90, 30, Some(0.2..5.0)),
     Fish::new("🐡", 80, 40, Some(0.2..5.0)),
     Fish::new("🦑", 50, 50, None),
@@ -80,14 +76,23 @@ static FISHES: [Fish; 19] = [
     Fish::new("Hhhehehe", 10, 200, None),
     Fish::new("FLOPPA", 1, 2000, None),
 ];
-static SLOTS: Lazy<u32> = Lazy::new(|| FISHES.iter().map(|f| f.weight).sum());
+static TOTAL_FISHES: Lazy<u32> = Lazy::new(|| FISHES.iter().map(|f| f.count).sum());
 
 static COOLDOWN: Lazy<Duration> = Lazy::new(|| Duration::hours(6));
+
+// struct FishModel {
+//     name: String,
+//     count: u32,
+//     max_value: u32,
+//     min_weight: f32,
+//     max_weight: f32,
+//     is_trash: bool,
+// }
 
 #[derive(Debug, Clone)]
 struct Fish {
     name: &'static str,
-    weight: u32,
+    count: u32,
     max_value: u32,
     weight_range: Option<Range<f32>>,
 }
@@ -95,14 +100,14 @@ struct Fish {
 impl Fish {
     pub const fn new(
         name: &'static str,
-        weight: u32,
+        count: u32,
         value: u32,
         weight_range: Option<Range<f32>>,
     ) -> Self {
         Self {
             name,
             max_value: value,
-            weight,
+            count,
             weight_range,
         }
     }
@@ -119,13 +124,24 @@ impl Fish {
     }
 }
 
+//impl From<FishModel> for Fish {
+//    fn from(fish: FishModel) -> Self {
+//        Self {
+//            name: &fish.name,
+//            count: fish.count,
+//            max_value: fish.max_value,
+//            weight_range: Some(fish.min_weight..fish.max_weight),
+//        }
+//    }
+//}
+
 impl Display for Fish {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{} ({:.1}%)",
             self.name,
-            self.weight as f32 / *SLOTS as f32 * 100.0
+            self.count as f32 / *TOTAL_FISHES as f32 * 100.0
         )?;
 
         if let Some(weight) = &self.weight_range {
@@ -175,23 +191,10 @@ impl Display for Catch<'_> {
     }
 }
 
-static DATABASE_PATH: OnceCell<PathBuf> = OnceCell::new();
-
 async fn connect_to_database() -> Result<SqliteConnection, Error> {
-    let path = DATABASE_PATH.get_or_try_init(|| {
-        let settings = Config::load()?;
-
-        let data_dir = settings.project_dirs().data_dir();
-
-        trace!("Creating data dir {data_dir:?}");
-        create_dir_all(data_dir).map_err(Error::CreateDataDir)?;
-
-        Result::<PathBuf, Error>::Ok(data_dir.join("fish.db"))
-    })?;
-
     debug!("Connecting to database");
     SqliteConnectOptions::new()
-        .filename(path)
+        .filename("fish.db")
         .journal_mode(SqliteJournalMode::Wal)
         .create_if_missing(true)
         .connect()
@@ -224,8 +227,8 @@ async fn main() -> Result<(), Error> {
             while let Some(message) = incoming_messages.recv().await {
                 match message {
                     ServerMessage::Privmsg(msg) => {
-                        if let Err(err) = handle_privmsg(&client, &msg).await {
-                            error!("Error handling privmsg: {}", err);
+                        if let Err(err) = handle_privmsg(&client, dbg!(&msg)).await {
+                            error!("Error handling privmsg: {:#?}", err);
                         }
                     }
                     ServerMessage::Notice(msg) => {
@@ -263,69 +266,110 @@ struct UserModel {
     is_bot: bool,
 }
 
+static COMMAND_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^((?P<emote>\S+)\s+)?Fishinge( (?P<args>.*))?$").unwrap());
+
 async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Error> {
-    match msg.message_text.replace("  ", " ").trim() {
-        "🐱 Fishinge" => {
-            client
-                .say_in_reply_to(msg, "No catfishing!".to_string())
-                .await
-                .map_err(Error::ReplyToMessage)?;
+    if let Some(captures) = dbg!(COMMAND_REGEX.captures(dbg!(&msg.message_text))) {
+        match dbg!(captures.name("emote").map(|m| m.as_str())) {
+            Some("🐱") => {
+                client
+                    .say_in_reply_to(msg, "No catfishing!".to_string())
+                    .await
+                    .map_err(Error::ReplyToMessage)?;
 
-            return Ok(());
+                Ok(())
+            }
+            Some("🔍") => {
+                client
+                    .say_in_reply_to(
+                        msg,
+                        format!(
+                            "you can catch the following fish: {}",
+                            FISHES
+                                .iter()
+                                .map(Fish::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    )
+                    .await
+                    .map_err(Error::ReplyToMessage)?;
+
+                Ok(())
+            }
+            Some("🏆") => {
+                let mut conn = connect_to_database().await?;
+                let users = sqlx::query_as!(UserModel, "SELECT * FROM users ORDER BY score DESC")
+                    .fetch_all(&mut conn)
+                    .await
+                    .map_err(Error::QueryUser)?;
+
+                conn.close().await.map_err(Error::CloseDatabseConnection)?;
+
+                let users = users
+                    .iter()
+                    .take(10)
+                    .filter(|user| user.score > 0.0)
+                    .filter(|user| !user.is_bot)
+                    .enumerate()
+                    .map(|(id, user)| format!("{}. {} - ${:.2}", id + 1, user.name, user.score))
+                    .collect::<Vec<_>>();
+
+                client
+                    .say_in_reply_to(
+                        msg,
+                        format!("the top 10 fishers are: {}", users.join(" · ")),
+                    )
+                    .await
+                    .map_err(Error::ReplyToMessage)?;
+
+                Ok(())
+            }
+            Some("🤖") => {
+                if dbg!(&msg.sender.login) != "chronophylos" {
+                    return Ok(());
+                }
+
+                if let Some(args) = captures.name("args") {
+                    let target = args
+                        .as_str()
+                        .split_whitespace()
+                        .next()
+                        .unwrap()
+                        .trim_start_matches('@')
+                        .to_lowercase();
+
+                    let mut conn = connect_to_database().await?;
+                    let epoch = NaiveDateTime::from_timestamp(0, 0);
+
+                    sqlx::query!(
+                    r#"
+                    INSERT OR IGNORE INTO users (name, last_fished, is_bot, score) VALUES (?, ?, true, 0);
+                    UPDATE users SET is_bot = true WHERE name = ?;
+                    "#,
+                    target,
+                    epoch,
+                    target
+                ).execute(&mut conn).await.map_err(Error::UpdateUser)?;
+
+                    client
+                        .say_in_reply_to(msg, format!("designated {} as bot", target))
+                        .await
+                        .map_err(Error::ReplyToMessage)?;
+                }
+
+                Ok(())
+            }
+            None => handle_fishinge(client, msg).await,
+            _ => Ok(()),
         }
-        "🔍 Fishinge" => {
-            client
-                .say_in_reply_to(
-                    msg,
-                    format!(
-                        "you can catch the following fish: {}",
-                        FISHES
-                            .iter()
-                            .map(Fish::to_string)
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
-                )
-                .await
-                .map_err(Error::ReplyToMessage)?;
-
-            return Ok(());
-        }
-        "🏆 Fishinge" => {
-            let mut conn = connect_to_database().await?;
-            let users = sqlx::query_as!(UserModel, "SELECT * FROM users ORDER BY score DESC")
-                .fetch_all(&mut conn)
-                .await
-                .map_err(Error::QueryUser)?;
-
-            conn.close().await.map_err(Error::CloseDatabseConnection)?;
-
-            let users = users
-                .iter()
-                .take(10)
-                .filter(|user| user.score > 0.0)
-                .filter(|user| !user.is_bot)
-                .enumerate()
-                .map(|(id, user)| format!("{}. {} - ${:.2}", id + 1, user.name, user.score))
-                .collect::<Vec<_>>();
-
-            client
-                .say_in_reply_to(
-                    msg,
-                    format!("the top 10 fishers are: {}", users.join(" · ")),
-                )
-                .await
-                .map_err(Error::ReplyToMessage)?;
-
-            return Ok(());
-        }
-        _ => {}
+    } else {
+        Ok(())
     }
+}
 
-    if !msg.message_text.starts_with("Fishinge") {
-        return Ok(());
-    }
-
+async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Error> {
     let now = Utc::now().naive_utc();
 
     let mut conn = connect_to_database().await?;
@@ -368,7 +412,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
     };
 
     let fish = FISHES
-        .choose_weighted(&mut rand::thread_rng(), |fish| fish.weight)
+        .choose_weighted(&mut rand::thread_rng(), |fish| fish.count)
         .unwrap();
 
     info!("{} is fishing for {fish}", msg.sender.name);
