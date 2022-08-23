@@ -1,0 +1,11 @@
+html {
+    background-color: #f5eadb;
+    color: #303535;
+    font-family: sans-serif;
+}
+
+a[href] {
+    text-decoration: none;
+    font-style: italic;
+    color: black;
+}

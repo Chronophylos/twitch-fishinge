@@ -6,3 +6,4 @@ fish.db
 Justfile
 twitch-fishinge.tar
 .env
+Dockerfile.*

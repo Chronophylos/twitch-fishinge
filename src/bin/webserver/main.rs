@@ -147,6 +147,28 @@ async fn fishes() -> Result<Html<String>, Error> {
     ))
 }
 
+macro_rules! assets {
+    {$first_file:literal => $first_content_type:literal, $($file:literal => $content_type:literal),*} => {
+        warp::get().or(warp::head()).unify().and({
+            let f = warp::path($first_file)
+                .map(|| {
+                    ::warp::hyper::Response::builder()
+                        .header("ContentType", $first_content_type)
+                        .body(::warp::hyper::Body::from(include_bytes!(concat!("assets/", $first_file)).as_slice()))
+                });
+                $(
+                    let f = f.or(warp::path($file).map(|| {
+                        ::warp::hyper::Response::builder()
+                            .header("ContentType", $content_type)
+                            .body(::warp::hyper::Body::from(include_bytes!(concat!("assets/", $file)).as_slice()))
+                    }));
+                )*
+            f
+        })
+    };
+
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     pretty_env_logger::init();
@@ -182,9 +204,24 @@ async fn main() -> Result<(), Error> {
         }
     });
 
-    let routes = warp::get().and(root.or(leaderboard_route).or(fishes_route));
+    let assets_route = assets! {
+        "android-chrome-144x144.png" => "image/png",
+        "apple-touch-icon.png" => "image/png",
+        "browserconfig.xml" => "application/xml",
+        "favicon-16x16.png" => "image/png",
+        "favicon-32x32.png" => "image/png",
+        "favicon.ico" => "image/x-icon",
+        "mstile-150x150.png" => "image/png",
+        "safari-pinned-tab.svg" => "image/svg+xml",
+        "site.webmanifest" => "application/manifest+json",
+        "styles.css" => "text/css"
+    };
 
-    warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
+    let routes = warp::get()
+        .and(root.or(leaderboard_route).or(fishes_route))
+        .or(assets_route);
+
+    warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;
 
     Ok(())
 }
