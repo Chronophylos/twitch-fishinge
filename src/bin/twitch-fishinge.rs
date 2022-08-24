@@ -69,7 +69,7 @@ static COOLDOWN: Lazy<Duration> = Lazy::new(|| Duration::hours(6));
 struct Fish {
     name: String,
     count: u32,
-    base_value: u32,
+    base_value: i32,
     weight_range: Option<Range<f32>>,
 }
 
@@ -77,12 +77,12 @@ impl Fish {
     pub const fn new(
         name: String,
         count: u32,
-        value: u32,
+        base_value: i32,
         weight_range: Option<Range<f32>>,
     ) -> Self {
         Self {
             name,
-            base_value: value,
+            base_value,
             count,
             weight_range,
         }
@@ -105,7 +105,7 @@ impl From<FishModel> for Fish {
         Self::new(
             fish.name,
             fish.count as u32,
-            fish.base_value as u32,
+            fish.base_value as i32,
             if fish.min_weight > f64::EPSILON && fish.max_weight > f64::EPSILON {
                 Some(fish.min_weight as f32..fish.max_weight as f32)
             } else {
@@ -144,18 +144,49 @@ impl<'a> Catch<'a> {
     }
 
     pub fn value(&self) -> f32 {
-        let weight_multiplier = self
-            .fish
-            .weight_range
-            .as_ref()
-            .and_then(|range| {
-                self.weight
-                    .map(|weight| (weight - range.start) / (range.end - range.start))
-            })
-            .unwrap_or(1.0)
-            * 2.0;
+        let base = self.fish.base_value as f32;
+        if let Some(x) = self.fish.weight_range.as_ref().and_then(|range| {
+            self.weight
+                .map(|weight| (weight - range.start) / (range.end - range.start))
+        }) {
+            let multiplier = (x * 1.36 - 0.48).powi(3) + 1.01 + x * 0.11;
 
-        self.fish.base_value as f32 * weight_multiplier
+            base * ((multiplier * 10.0).round() * 0.1)
+        } else {
+            base
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use approx::assert_ulps_eq;
+    use test_case::test_case;
+
+    use super::*;
+
+    #[test_case(Some(0.0..1.0), 100, 0.0, 90.0 ; "range 0.0 to 1.0 with base value 100 and weight 0.0")]
+    #[test_case(Some(0.0..1.0), 100, 0.5, 110.0 ; "range 0.0 to 1.0 with base value 100 and weight 0.5")]
+    #[test_case(Some(0.0..1.0), 100, 1.0, 180.0 ; "range 0.0 to 1.0 with base value 100 and weight 1.0")]
+    #[test_case(Some(0.0..1.0), 100, 1.1, 220.0 ; "range 0.0 to 1.0 with base value 100 and over weight 1.1")]
+    #[test_case(Some(0.0..1.0), -100, 0.0, -90.0 ; "range 0.0 to 1.0 with negative base value -100 and weight 0.0")]
+    #[test_case(Some(0.0..1.0), -100, 0.5, -110.0 ; "range 0.0 to 1.0 with negative base value -100 and weight 0.5")]
+    #[test_case(Some(0.0..1.0), -100, 1.0, -180.0 ; "range 0.0 to 1.0 with negative base value -100 and weight 1.0")]
+    #[test_case(Some(5.3..12.6), 123, 5.3, 123.0 * 0.9 ; "range 5.3 to 12.6 with base value 123 and weight 5.3")]
+    #[test_case(Some(5.3..12.6), 123, 8.95, 123.0 * 1.1 ; "range 5.3 to 12.6 with base value 123 and weight 8.95")]
+    #[test_case(Some(5.3..12.6), 123, 12.6, 123.0 * 1.8 ; "range 5.3 to 12.6 with base value 123 and weight 12.6")]
+    #[test_case(None, -50, 0.0, -50.0 ; "without range with base value -50 and weight 0.0")]
+    #[test_case(None, -50, 100.0, -50.0 ; "without range with base value -50 and weight 100.0")]
+    fn catch_value(
+        weight_range: Option<Range<f32>>,
+        base_value: i32,
+        weight: f32,
+        expected_value: f32,
+    ) {
+        let fish = Fish::new(String::new(), 1, base_value, weight_range);
+
+        let catch = Catch::new(&fish, Some(weight));
+        assert_ulps_eq!(catch.value(), expected_value, max_ulps = 4);
     }
 }
 
@@ -165,7 +196,12 @@ impl Display for Catch<'_> {
         if let Some(weight) = self.weight {
             write!(f, " ({:.1}kg)", weight)?;
         }
-        write!(f, " worth ${:.2}", self.value())?;
+        let value = self.value();
+        if value < f32::EPSILON {
+            write!(f, " worth nothing")?;
+        } else {
+            write!(f, " worth ${:.2}", self.value())?;
+        }
 
         Ok(())
     }

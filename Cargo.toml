@@ -51,3 +51,7 @@ twitch-irc = { version = "4.0.0", default-features = false, features = [
 ], git = "https://github.com/Chronophylos/twitch-irc-rs.git", branch = "impl-clone-for-useraccesstoken" }
 url = "2.2.2"
 warp = "0.3.2"
+
+[dev-dependencies]
+approx = "0.5.1"
+test-case = "2.2.1"

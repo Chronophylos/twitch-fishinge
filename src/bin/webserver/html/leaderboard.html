@@ -37,7 +37,7 @@
         {{ for entry in users }}
         <tr>
             <td>{ entry.0 }</td>
-            <td>{ entry.1.name }</td>
+            <td>{{ if entry.1.is_bot }}🤖 {{ endif }}{ entry.1.name }</td>
             <td>{ entry.1.score | score_formatter }</td>
         </tr>
         {{ endfor }}
