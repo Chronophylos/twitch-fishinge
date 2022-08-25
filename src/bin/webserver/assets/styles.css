@@ -1,11 +1,102 @@
-html {
-    background-color: #f5eadb;
-    color: #303535;
-    font-family: sans-serif;
+@font-face {
+    font-family: 'Neonderthaw';
+    font-style: normal;
+    font-weight: 400;
+    src: url('Neonderthaw-Regular.ttf');
 }
-
-a[href] {
+@font-face {
+    font-family: 'Righteous';
+    font-style: normal;
+    font-weight: 400;
+    src: url('Righteous-Regular.ttf');
+}
+html {
+    background-color: #131313;
+    color: #fff;
+    font-family: 'Righteous', sans-serif;
+}
+a {
     text-decoration: none;
     font-style: italic;
-    color: black;
+    color: #fff;
+	transition: all .5s ease;
+}
+a:hover {
+	text-shadow:
+	  0 0 7px #2596be,
+	  0 0 10px #2596be,
+	  0 0 21px #2596be
+}
+h1 {
+    font-size: 80px;
+    animation: flicker 5s infinite alternate;
+	font-family: 'Neonderthaw', sans-serif;
+}
+h3 {
+	font-size: 30px;
+	letter-spacing: 2px;
+}
+table {
+	text-align: center;
+}
+td:nth-child(2) {
+	min-width: 250px;
+}
+th:nth-child(2) {
+	letter-spacing: 2px;
+}
+.neonText {
+	color: #fff;
+	text-shadow:
+	  0 0 7px #2596be,
+	  0 0 10px #2596be,
+	  0 0 21px #2596be
+}
+/* Flickering animation */
+@keyframes flicker {
+    
+    0%, 30%, 53%, 57%, 100% {
+		text-shadow:
+          0 0 4px #2596be,
+          0 0 11px #2596be,
+          0 0 19px #2596be
+    }
+	0%, 22%, 43%, 67%, 100% {
+		text-shadow:
+          0 0 4px #2596be,
+          0 0 11px #2596be,
+          0 0 19px #2596be
+    }
+	0%, 13%, 55%, 67%, 78% {
+		text-shadow:
+          0 0 4px #2596be,
+          0 0 11px #2596be,
+          0 0 19px #2596be
+    }
+	0%, 15%, 33%, 47%, 100% {
+		text-shadow:
+          0 0 4px #2596be,
+          0 0 11px #2596be,
+          0 0 19px #2596be
+    }
+    20%, 24%, 55%, 66%, 80% {        
+		text-shadow: none;
+    }    
+	
+}
+
+.wrapper {
+	align-items: center;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+}
+.filter {
+	display: flex;
+	justify-content: space-between;
+	max-width: 250px;
+	width: 100%;
+}
+.text {
+	text-align: center;
 }
