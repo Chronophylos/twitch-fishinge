@@ -212,6 +212,7 @@ async fn main() -> Result<(), Error> {
         "favicon-32x32.png" => "image/png",
         "favicon.ico" => "image/x-icon",
         "mstile-150x150.png" => "image/png",
+        "nerdge.webp" => "image/webp",
         "safari-pinned-tab.svg" => "image/svg+xml",
         "site.webmanifest" => "application/manifest+json",
         "styles.css" => "text/css"

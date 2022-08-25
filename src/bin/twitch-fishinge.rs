@@ -325,7 +325,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
 
                 Ok(())
             }
-            Some("🔍") => {
+            Some("🔍") | Some("🔎") => {
                 client
                     .say_in_reply_to(msg, format!("fishes are here {WEB_URL}/fishes"))
                     .await
