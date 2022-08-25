@@ -3,7 +3,7 @@
 
 <head>
     <title>Fishinge</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="styles.css">
     <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -22,102 +22,105 @@
 </head>
 
 <body>
-    check the <a href="/leaderboard">leaderboard</a> or a list of all <a href="/fishes">fishes</a>
+	<div class="wrapper">
+		<div class="text">
+			check the <a href="/leaderboard">leaderboard</a> or a list of all <a href="/fishes">fishes</a>
+		</div>
+		<ul>
+			<li>Fishinge - fish every 6 hours</li>
+			<li>❓ Fishinge - to get this link</li>
+			<li>🔍 Fishinge - get link to <a href="/fishes">fishes</a></li>
+			<li>🏆 Fishinge - get link to <a href="/leaderboard">leaderboard</a></li>
+			<li>🐱 Fishinge - im a comedian</li>
+		</ul>
 
-    <ul>
-        <li>Fishinge - fish every 6 hours</li>
-        <li>❓ Fishinge - to get this link</li>
-        <li>🔍 Fishinge - get link to <a href="/fishes">fishes</a></li>
-        <li>🏆 Fishinge - get link to <a href="/leaderboard">leaderboard</a></li>
-        <li>🐱 Fishinge - im a comedian</li>
-    </ul>
 
+		<h4><img src="/nerdge.webp" alt="Nerdge" style="height: 2em" /> stuff</h4>
+		<div class="text">
+			the weight is randomly chosen from a uniform distribution over the fishs
+			mininum and maximum weight.
 
-    <h4><img src="/nerdge.webp" alt="Nerdge" style="height: 2em" /> stuff</h4>
+			<br>
 
-    the weight is randomly chosen from a uniform distribution over the fishs
-    mininum and maximum weight.
-
-    <br>
-
-    value is calculated with the following formula
-    <math display="inline">
-        <semantics>
-            <mrow>
-                <mi>f</mi>
-                <mrow>
-                    <mrow>
-                        <mo fence="true" form="prefix" stretchy="false">(</mo>
-                        <mrow>
-                            <mi>x</mi>
-                        </mrow>
-                        <mo fence="true" form="postfix" stretchy="false">)</mo>
-                    </mrow>
-                    <mo stretchy="false">=</mo>
-                    <mrow>
-                        <msup>
-                            <mrow>
-                                <mo fence="true" form="prefix" stretchy="false">(</mo>
-                                <mrow>
-                                    <mrow>
-                                        <mrow>
-                                            <mi>x</mi>
-                                            <mo stretchy="false">∗</mo>
-                                            <mn>1.36</mn>
-                                        </mrow>
-                                        <mo stretchy="false">−</mo>
-                                        <mn>0.48</mn>
-                                    </mrow>
-                                </mrow>
-                                <mo fence="true" form="postfix" stretchy="false">)</mo>
-                            </mrow>
-                            <mn>3</mn>
-                        </msup>
-                        <mo stretchy="false">+</mo>
-                        <mn>1.01</mn>
-                        <mo stretchy="false">+</mo>
-                        <mrow>
-                            <mi>x</mi>
-                            <mo stretchy="false">∗</mo>
-                            <mn>0.11</mn>
-                        </mrow>
-                    </mrow>
-                </mrow>
-            </mrow>
-            <annotation encoding="StarMath 5.0">f(x) = (x * 1.36 - 0.48)^3 + 1.01 + x * 0.11</annotation>
-        </semantics>
-    </math>
-    <br>
-    where
-    <math display="inline">
-        <mi>x</mi>
-    </math>
-    is
-    <math display="inline">
-        <mo fence="true" form="prefix" stretchy="false">[</mo>
-        <mn>
-            0
-        </mn>
-        <mo>,</mo>
-        <mn>
-            1
-        </mn>
-        <mo fence="true" form="postfix" stretchy="false">]</mo>
-    </math>
-    and is
-    derived from the weight compared to the maximum and minimum weight.
-    if a fish has no weight
-    <math display="inline">
-        <mi>x</mi>
-    </math>
-    is
-    <math display="inline">
-        <mn>
-            0.5
-        </mn>
-    </math>
-    .
-
+			value is calculated with the following formula
+			<math display="inline">
+				<semantics>
+					<mrow>
+						<mi>f</mi>
+						<mrow>
+							<mrow>
+								<mo fence="true" form="prefix" stretchy="false">(</mo>
+								<mrow>
+									<mi>x</mi>
+								</mrow>
+								<mo fence="true" form="postfix" stretchy="false">)</mo>
+							</mrow>
+							<mo stretchy="false">=</mo>
+							<mrow>
+								<msup>
+									<mrow>
+										<mo fence="true" form="prefix" stretchy="false">(</mo>
+										<mrow>
+											<mrow>
+												<mrow>
+													<mi>x</mi>
+													<mo stretchy="false">∗</mo>
+													<mn>1.36</mn>
+												</mrow>
+												<mo stretchy="false">−</mo>
+												<mn>0.48</mn>
+											</mrow>
+										</mrow>
+										<mo fence="true" form="postfix" stretchy="false">)</mo>
+									</mrow>
+									<mn>3</mn>
+								</msup>
+								<mo stretchy="false">+</mo>
+								<mn>1.01</mn>
+								<mo stretchy="false">+</mo>
+								<mrow>
+									<mi>x</mi>
+									<mo stretchy="false">∗</mo>
+									<mn>0.11</mn>
+								</mrow>
+							</mrow>
+						</mrow>
+					</mrow>
+					<annotation encoding="StarMath 5.0">f(x) = (x * 1.36 - 0.48)^3 + 1.01 + x * 0.11</annotation>
+				</semantics>
+			</math>
+			<br>
+			where
+			<math display="inline">
+				<mi>x</mi>
+			</math>
+			is
+			<math display="inline">
+				<mo fence="true" form="prefix" stretchy="false">[</mo>
+				<mn>
+					0
+				</mn>
+				<mo>,</mo>
+				<mn>
+					1
+				</mn>
+				<mo fence="true" form="postfix" stretchy="false">]</mo>
+			</math>
+			and is
+			derived from the weight compared to the maximum and minimum weight.
+			if a fish has no weight
+			<math display="inline">
+				<mi>x</mi>
+			</math>
+			is
+			<math display="inline">
+				<mn>
+					0.5
+				</mn>
+			</math>
+			.
+		</div>
+	</div>
 </body>
 
 </html>

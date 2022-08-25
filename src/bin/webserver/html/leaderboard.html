@@ -3,7 +3,7 @@
 
 <head>
     <title>Fishinge</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="styles.css">
     <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -19,30 +19,30 @@
 
 <body>
     <a href="/">go back</a>
+	<div class="wrapper">
+		<h3>Filters</h3>
+		<div class="filter">
+			<a href="/leaderboard?include_bots=false">exclude bots</a>
+			<a href="/leaderboard?include_bots=true">include bots</a>
+		</div>
 
-    <h3>Filters</h3>
-    <ul>
-        <li><a href="/leaderboard?include_bots=false">exclude bots</a></li>
-        <li><a href="/leaderboard?include_bots=true">include bots</a></li>
-    </ul>
+		<h1>Leaderboard</h1>
 
-    <h1>Leaderboard</h1>
-
-    <table>
-        <tr>
-            <th>Place</th>
-            <th>Username</th>
-            <th>Score</th>
-        </tr>
-        {{ for entry in users }}
-        <tr>
-            <td>{ entry.0 }</td>
-            <td>{{ if entry.1.is_bot }}🤖 {{ endif }}{ entry.1.name }</td>
-            <td>{ entry.1.score | score_formatter }</td>
-        </tr>
-        {{ endfor }}
-    </table>
-
+		<table>
+			<tr>
+				<th>Place</th>
+				<th>Username</th>
+				<th>Score</th>
+			</tr>
+			{{ for entry in users }}
+			<tr>
+				<td>{ entry.0 }</td>
+				<td>{{ if entry.1.is_bot }}🤖 {{ endif }}{ entry.1.name }</td>
+				<td>{ entry.1.score | score_formatter }</td>
+			</tr>
+			{{ endfor }}
+		</table>
+	</div>
 </body>
 
 </html>
