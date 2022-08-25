@@ -1854,7 +1854,7 @@ dependencies = [
 [[package]]
 name = "twitch-irc"
 version = "4.0.0"
-source = "git+https://github.com/Chronophylos/twitch-irc-rs.git?branch=impl-clone-for-useraccesstoken#81b5640186817c8e225efb70fdf336f2093c5b00"
+source = "git+https://github.com/robotty/twitch-irc-rs.git?rev=9653261bf05f8adf469b084548146a2114b61782#9653261bf05f8adf469b084548146a2114b61782"
 dependencies = [
  "async-trait",
  "bytes",

@@ -215,6 +215,8 @@ async fn main() -> Result<(), Error> {
         "nerdge.webp" => "image/webp",
         "safari-pinned-tab.svg" => "image/svg+xml",
         "site.webmanifest" => "application/manifest+json",
+        "Neonderthaw-Regular.ttf" => "application/x-font-ttf",
+        "Righteous-Regular.ttf" => "application/x-font-ttf",
         "styles.css" => "text/css"
     };
 
