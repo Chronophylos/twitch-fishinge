@@ -43,7 +43,18 @@ fn percentage_formatter(value: &Value, _args: &HashMap<String, Value>) -> tera::
 }
 
 static TEMPLATES: Lazy<Tera> = Lazy::new(|| {
-    let mut tera = Tera::new("templates/**/*.html").unwrap();
+    //let mut tera = Tera::new("templates/**/*.html").unwrap();
+    let mut tera = Tera::default();
+    tera.add_raw_templates([
+        ("base.html", include_str!("templates/base.html")),
+        ("fishes.html", include_str!("templates/fishes.html")),
+        ("index.html", include_str!("templates/index.html")),
+        (
+            "leaderboard.html",
+            include_str!("templates/leaderboard.html"),
+        ),
+    ])
+    .unwrap();
     tera.register_filter("score", score_formatter);
     tera.register_filter("percentage", percentage_formatter);
     tera
