@@ -3,6 +3,7 @@
     font-style: normal;
     font-weight: 400;
     src: url('Neonderthaw-Regular.ttf');
+    font-display: swap;
 }
 
 @font-face {
@@ -10,6 +11,7 @@
     font-style: normal;
     font-weight: 400;
     src: url('Righteous-Regular.ttf');
+    font-display: swap;
 }
 
 html {
