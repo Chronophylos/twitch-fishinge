@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<a href="/">go back</a>
+<div class="wrapper">
+	<h1>Fishes</h1>
+	<table>
+		<tr>
+			<th>Name</th>
+			<th>Probabiliy</th>
+			<th>Base Value</th>
+			<th>Weight</th>
+		</tr>
+		{% for fish in fishes %}
+		<tr>
+			<td>{{ fish.name }}</td>
+			<td>{{ fish.chance | percentage }}</td>
+			<td>{{ fish.base_value | score }}</td>
+			<td>
+				{% if fish.min_weight -%}
+				{% if fish.max_weight -%}
+				{{ fish.min_weight }}kg - {{ fish.max_weight }}kg
+				{%- endif %}
+				{%- endif %}
+			</td>
+		</tr>
+		{% endfor %}
+	</table>
+</div>
+{% endblock content %}
