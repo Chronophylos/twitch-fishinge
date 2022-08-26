@@ -136,22 +136,19 @@ macro_rules! assets {
     {$first_file:literal => $first_content_type:literal, $($file:literal => $content_type:literal),*} => {
         warp::get().or(warp::head()).unify().and({
             let f = warp::path($first_file)
-                .map(|| {
-                    ::warp::hyper::Response::builder()
-                        .header("ContentType", $first_content_type)
-                        .body(::warp::hyper::Body::from(include_bytes!(concat!("assets/", $first_file)).as_slice()))
-                });
+                .map(|| { assets!(BUILDER, $first_file, $first_content_type) });
                 $(
-                    let f = f.or(warp::path($file).map(|| {
-                        ::warp::hyper::Response::builder()
-                            .header("ContentType", $content_type)
-                            .body(::warp::hyper::Body::from(include_bytes!(concat!("assets/", $file)).as_slice()))
-                    }));
+                    let f = f.or(warp::path($file).map(|| { assets!(BUILDER, $file, $content_type) }));
                 )*
             f
         })
     };
-
+    (BUILDER, $file:literal, $content_type:literal) => {
+        ::warp::hyper::Response::builder()
+            .header("ContentType", $content_type)
+            .header("Cache-Control", "public, max-age=31536000")
+            .body(::warp::hyper::Body::from(include_bytes!(concat!("assets/", $file)).as_slice()))
+    };
 }
 
 #[tokio::main]
