@@ -1,5 +1,25 @@
 {
   "db": "SQLite",
+  "2cfae96da50600bece3d59a045f8a68d0a0ce8a59ee814735ca5e8d2472b0904": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 8
+      }
+    },
+    "query": "\n        UPDATE users\n        SET\n            score = score + ?,\n            last_fished = ?\n        WHERE id = ?;\n        INSERT INTO\n            catches(fish_id, user_id, caught_at, weight, value)\n        VALUES (?, ?, ?, ?, ?);\n        "
+  },
+  "49c44c2ecae3d9948cacccdc4268c651124c1c78b6cf3be279dcdb76bc5cc5c1": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 3
+      }
+    },
+    "query": "\n                        INSERT OR IGNORE INTO users (name, last_fished, is_bot, score) VALUES (?, ?, true, 0);\n                        UPDATE users SET is_bot = true WHERE name = ?;\n                        "
+  },
   "6133a3e26e7abd0489e25a5ea1a69f16ee93f66b7ace4b32e4ff8911d1fa9452": {
     "describe": {
       "columns": [
@@ -54,7 +74,7 @@
     },
     "query": "SELECT * FROM fishes"
   },
-  "751206eaefd0f67412c7b439a2699860e52a3761387279498529f2fdb18b6dc6": {
+  "65aa5a653ebf03fabc219aa684c07835d021998cd90afec280d38ebe04fb7a9a": {
     "describe": {
       "columns": [],
       "nullable": [],
@@ -62,27 +82,37 @@
         "Right": 3
       }
     },
-    "query": "\n                    INSERT OR IGNORE INTO users (name, last_fished, is_bot, score) VALUES (?, ?, true, 0);\n                    UPDATE users SET is_bot = true WHERE name = ?;\n                    "
+    "query": "INSERT INTO users(name, last_fished, score) VALUES (?, ?, ?)"
   },
-  "c55ba08db9751b20d1fc022778a5361262cf8402cb710d466e532cbf73c36069": {
+  "77b0417ae6da62e0d8275011b0c2be73155fcceb6a59c5b533c0456b075ac91e": {
     "describe": {
-      "columns": [],
-      "nullable": [],
+      "columns": [
+        {
+          "name": "fish_name",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "weight",
+          "ordinal": 1,
+          "type_info": "Float"
+        },
+        {
+          "name": "value",
+          "ordinal": 2,
+          "type_info": "Float"
+        }
+      ],
+      "nullable": [
+        true,
+        true,
+        true
+      ],
       "parameters": {
-        "Right": 3
+        "Right": 1
       }
     },
-    "query": "UPDATE users SET score = score + ?, last_fished = ? WHERE id = ?"
-  },
-  "c6cb6f4f908453da45b2a64a43944362978ea7781a18cc988833450868ae258e": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Right": 3
-      }
-    },
-    "query": "INSERT INTO users (name, last_fished, score) VALUES (?, ?, ?)"
+    "query": "\n                    SELECT f.name as fish_name, c.weight, c.value\n                    FROM catches c\n                    INNER JOIN fishes f\n                        ON f.id = c.fish_id\n                    INNER JOIN users u\n                        ON c.user_id = u.id\n                    WHERE u.name = ?\n                    ORDER BY value DESC\n                    LIMIT 1\n                    "
   },
   "f6bb7417e56c3e55c0060e407c26ea765b431e7742e0d2f088c850ba321327a5": {
     "describe": {

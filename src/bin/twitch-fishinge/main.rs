@@ -10,7 +10,7 @@ use log::{debug, error, info, trace, warn};
 use once_cell::sync::{Lazy, OnceCell};
 use rand::{rngs::OsRng, seq::SliceRandom, Rng};
 use regex::Regex;
-use sqlx::{Connection, SqliteConnection};
+use sqlx::{Connection, FromRow, SqliteConnection};
 use tokio::sync::OnceCell as AsyncOnceCell;
 use twitch_fishinge::{
     db_conn,
@@ -51,6 +51,9 @@ enum Error {
 
     #[error("Could not query fishes")]
     QueryFishes(#[source] sqlx::Error),
+
+    #[error("Could not query catches")]
+    QueryCatches(#[source] sqlx::Error),
 
     #[error("Could not migrate database")]
     MigrateDatabase(#[from] sqlx::migrate::MigrateError),
@@ -124,15 +127,15 @@ impl Display for Fish {
     }
 }
 
-#[derive(Debug, Clone)]
-struct Catch<'a> {
-    fish: &'a Fish,
+#[derive(Debug, Clone, FromRow)]
+struct Catch {
+    fish_name: String,
     weight: Option<f32>,
     value: f32,
 }
 
-impl<'a> Catch<'a> {
-    pub fn new(fish: &'a Fish, weight: Option<f32>) -> Self {
+impl Catch {
+    pub fn new(fish: &Fish, weight: Option<f32>) -> Self {
         let multiplier = fish
             .weight_range
             .as_ref()
@@ -142,7 +145,7 @@ impl<'a> Catch<'a> {
             .map_or(1.0, |x| (x * 1.36 - 0.48).powi(3) + 1.01 + x * 0.11);
 
         Self {
-            fish,
+            fish_name: fish.name.clone(),
             weight,
             value: fish.base_value as f32 * multiplier,
         }
@@ -187,9 +190,9 @@ mod tests {
     }
 }
 
-impl Display for Catch<'_> {
+impl Display for Catch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.fish.name)?;
+        write!(f, "{}", self.fish_name)?;
         if let Some(weight) = self.weight {
             write!(f, " ({:.1}kg)", weight)?;
         }
@@ -361,14 +364,14 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                     let epoch = NaiveDateTime::from_timestamp(0, 0);
 
                     sqlx::query!(
-                    r#"
-                    INSERT OR IGNORE INTO users (name, last_fished, is_bot, score) VALUES (?, ?, true, 0);
-                    UPDATE users SET is_bot = true WHERE name = ?;
-                    "#,
-                    target,
-                    epoch,
-                    target
-                ).execute(&mut conn).await.map_err(Error::UpdateUser)?;
+                        r#"
+                        INSERT OR IGNORE INTO users (name, last_fished, is_bot, score) VALUES (?, ?, true, 0);
+                        UPDATE users SET is_bot = true WHERE name = ?;
+                        "#,
+                        target,
+                        epoch,
+                        target
+                    ).execute(&mut conn).await.map_err(Error::UpdateUser)?;
 
                     client
                         .say_in_reply_to(msg, format!("designated {} as bot", target))
@@ -383,6 +386,43 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                     .say_in_reply_to(msg, format!("the list of commands is here {WEB_URL}"))
                     .await
                     .map_err(Error::ReplyToMessage)?;
+
+                Ok(())
+            }
+            Some("💎") => {
+                let mut conn = db_conn().await?;
+
+                // get most valuable catch
+                let catch_query = sqlx::query_as_unchecked!(
+                    Catch,
+                    r#"
+                    SELECT f.name as fish_name, c.weight, c.value
+                    FROM catches c
+                    INNER JOIN fishes f
+                        ON f.id = c.fish_id
+                    INNER JOIN users u
+                        ON c.user_id = u.id
+                    WHERE u.name = ?
+                    ORDER BY value DESC
+                    LIMIT 1
+                    "#,
+                    msg.sender.login
+                )
+                .fetch_optional(&mut conn)
+                .await
+                .map_err(Error::QueryCatches)?;
+
+                if let Some(catch) = catch_query {
+                    client
+                        .say_in_reply_to(msg, format!("your most valuable catch is {}", catch))
+                        .await
+                        .map_err(Error::ReplyToMessage)?;
+                } else {
+                    client
+                        .say_in_reply_to(msg, "you did not catch any fish yet".to_string())
+                        .await
+                        .map_err(Error::ReplyToMessage)?;
+                };
 
                 Ok(())
             }
