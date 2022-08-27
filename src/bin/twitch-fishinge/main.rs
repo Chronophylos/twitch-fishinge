@@ -1,8 +1,11 @@
 #![forbid(unsafe_code)]
 
+mod config;
+
 use std::{fmt::Display, ops::Range, time::Duration as StdDuration};
 
 use chrono::{Duration, NaiveDateTime, Utc};
+use eyre::Report;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::{Lazy, OnceCell};
 use rand::{rngs::OsRng, seq::SliceRandom, Rng};
@@ -12,13 +15,14 @@ use tokio::sync::OnceCell as AsyncOnceCell;
 use twitch_fishinge::{
     db_conn,
     models::{Fish as FishModel, User as UserModel},
-    Config,
 };
 use twitch_irc::{
     login::RefreshingLoginCredentials,
     message::{PrivmsgMessage, ServerMessage},
     SecureTCPTransport, TwitchIRCClient,
 };
+
+use crate::config::Config;
 
 type Client = TwitchIRCClient<SecureTCPTransport, RefreshingLoginCredentials<Config>>;
 
@@ -67,6 +71,7 @@ static COOLDOWN: Lazy<Duration> = Lazy::new(|| Duration::hours(6));
 
 #[derive(Debug, Clone)]
 struct Fish {
+    id: i64,
     name: String,
     count: u32,
     base_value: i32,
@@ -74,20 +79,6 @@ struct Fish {
 }
 
 impl Fish {
-    pub const fn new(
-        name: String,
-        count: u32,
-        base_value: i32,
-        weight_range: Option<Range<f32>>,
-    ) -> Self {
-        Self {
-            name,
-            base_value,
-            count,
-            weight_range,
-        }
-    }
-
     pub fn catch(&self) -> Catch {
         let mut rng = rand::thread_rng();
 
@@ -102,16 +93,17 @@ impl Fish {
 
 impl From<FishModel> for Fish {
     fn from(fish: FishModel) -> Self {
-        Self::new(
-            fish.name,
-            fish.count as u32,
-            fish.base_value as i32,
-            if fish.min_weight > f64::EPSILON && fish.max_weight > f64::EPSILON {
+        Self {
+            id: fish.id,
+            name: fish.name,
+            count: fish.count as u32,
+            base_value: fish.base_value as i32,
+            weight_range: if fish.min_weight > f64::EPSILON && fish.max_weight > f64::EPSILON {
                 Some(fish.min_weight as f32..fish.max_weight as f32)
             } else {
                 None
             },
-        )
+        }
     }
 }
 
@@ -183,7 +175,13 @@ mod tests {
         weight: f32,
         expected_value: f32,
     ) {
-        let fish = Fish::new(String::new(), 1, base_value, weight_range);
+        let fish = Fish {
+            id: 0,
+            name: String::new(),
+            count: 0,
+            base_value,
+            weight_range,
+        };
         let catch = Catch::new(&fish, Some(weight));
         assert_ulps_eq!(catch.value, expected_value, max_ulps = 4);
     }
@@ -206,9 +204,12 @@ impl Display for Catch<'_> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
-    pretty_env_logger::init();
+async fn main() -> Result<(), Report> {
+    pretty_env_logger::init_timed();
+    Ok(main_().await?)
+}
 
+async fn main_() -> Result<(), Error> {
     let mut conn = db_conn().await?;
 
     info!("Running Migrations");
@@ -442,7 +443,7 @@ async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Er
     } else {
         // create user
         let id = sqlx::query!(
-            "INSERT INTO users (name, last_fished, score) VALUES (?, ?, ?)",
+            "INSERT INTO users(name, last_fished, score) VALUES (?, ?, ?)",
             msg.sender.login,
             now,
             0
@@ -468,10 +469,24 @@ async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Er
     info!("{} caught {catch}", msg.sender.name);
 
     sqlx::query!(
-        "UPDATE users SET score = score + ?, last_fished = ? WHERE id = ?",
+        r#"
+        UPDATE users
+        SET
+            score = score + ?,
+            last_fished = ?
+        WHERE id = ?;
+        INSERT INTO
+            catches(fish_id, user_id, caught_at, weight, value)
+        VALUES (?, ?, ?, ?, ?);
+        "#,
         catch.value,
         now,
-        id
+        id,
+        fish.id,
+        id,
+        now,
+        catch.weight,
+        catch.value
     )
     .execute(&mut conn)
     .await

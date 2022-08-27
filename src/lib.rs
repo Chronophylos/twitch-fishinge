@@ -1,9 +1,7 @@
 #![forbid(unsafe_code)]
 
-mod config;
 pub mod models;
 
-pub use config::Config;
 use log::debug;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode},

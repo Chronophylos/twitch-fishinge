@@ -164,7 +164,7 @@ macro_rules! assets {
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    pretty_env_logger::init();
+    pretty_env_logger::init_timed();
 
     // GET /
     let root = warp::path::end().map(|| match index() {

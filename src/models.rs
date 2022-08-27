@@ -22,3 +22,13 @@ pub struct User {
     pub score: f64,
     pub is_bot: bool,
 }
+
+#[derive(Debug, Serialize)]
+pub struct Catch {
+    pub id: i64,
+    pub caught_at: NaiveDateTime,
+    pub fish: Fish,
+    pub user: User,
+    pub weight: Option<f64>,
+    pub value: f64,
+}
