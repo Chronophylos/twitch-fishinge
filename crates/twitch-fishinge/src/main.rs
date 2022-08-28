@@ -2,18 +2,18 @@
 
 mod config;
 
-use std::{fmt::Display, ops::Range, time::Duration as StdDuration};
+use std::{collections::HashSet, env, fmt::Display, ops::Range, time::Duration as StdDuration};
 
 use chrono::{Duration, NaiveDateTime, Utc};
 use database::{
-    db_conn,
+    connection,
     models::{Fish as FishModel, User as UserModel},
 };
 use dotenvy::dotenv;
 use eyre::WrapErr;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::{Lazy, OnceCell};
-use rand::{rngs::OsRng, seq::SliceRandom, Rng};
+use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use regex::Regex;
 use sqlx::{Connection, FromRow, SqliteConnection};
 use tokio::sync::OnceCell as AsyncOnceCell;
@@ -36,7 +36,7 @@ enum Error {
     ValidateChannelName(#[from] twitch_irc::validate::Error),
 
     #[error("Could not open database connection")]
-    OpenDatabase(#[from] database::OpenDatabaseError),
+    OpenDatabase(#[from] database::Error),
 
     #[error("Could not close database connection")]
     CloseDatabase(#[source] sqlx::Error),
@@ -216,7 +216,7 @@ async fn main() -> eyre::Result<()> {
 }
 
 async fn main_() -> Result<(), Error> {
-    let mut conn = db_conn().await?;
+    let mut conn = connection().await?;
 
     info!("Running Migrations");
     sqlx::migrate!("../../migrations").run(&mut conn).await?;
@@ -281,17 +281,22 @@ async fn main_() -> Result<(), Error> {
         }
     });
 
+    let wanted_channels = env::var("CHANNELS")
+        .unwrap_or_else(|_| "".to_string())
+        .split(',')
+        .map(|channel| channel.trim().to_string())
+        .collect::<HashSet<_>>();
+
     debug!(
         "Wanting to join channels {}",
-        settings
-            .channels
+        wanted_channels
             .iter()
-            .map(String::from)
+            .map(|s| s.as_str())
             .collect::<Vec<_>>()
             .join(", ")
     );
 
-    client.set_wanted_channels(settings.channels.clone())?;
+    client.set_wanted_channels(wanted_channels)?;
 
     // keep the tokio executor alive.
     // If you return instead of waiting the background task will exit.
@@ -375,7 +380,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                         .trim_start_matches('@')
                         .to_lowercase();
 
-                    let mut conn = db_conn().await?;
+                    let mut conn = connection().await?;
                     let epoch = NaiveDateTime::from_timestamp(0, 0);
 
                     sqlx::query!(
@@ -405,7 +410,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                 Ok(())
             }
             Some("💎") => {
-                let mut conn = db_conn().await?;
+                let mut conn = connection().await?;
 
                 // get most valuable catch
                 let catch_query = sqlx::query_as!(
@@ -451,9 +456,10 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
 
 async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Error> {
     let now = Utc::now().naive_utc();
-    let mut rng = OsRng;
+    // TODO: remove unwrap
+    let mut rng = StdRng::from_rng(thread_rng()).unwrap();
 
-    let mut conn = db_conn().await?;
+    let mut conn = connection().await?;
 
     // get user from database
     let id = if let Some(user) = sqlx::query_as!(

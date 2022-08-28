@@ -13,7 +13,7 @@
 		{% for fish in fishes %}
 		<tr>
 			<td>{{ fish.name }}</td>
-			<td>{{ fish.chance | round2 }}%</td>
+			<td>{{ fish.chance * 100 | round2 }}%</td>
 			<td>${{ fish.base_value | round2 }}</td>
 			<td>
 				{% if fish.min_weight -%}

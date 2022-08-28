@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use database::{
-    db_conn,
+    connection,
     models::{Fish, User},
 };
 use dotenvy::dotenv;
@@ -22,7 +22,7 @@ use warp::{
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("Could not open database connection")]
-    OpenDatabase(#[from] database::OpenDatabaseError),
+    OpenDatabase(#[from] database::Error),
 
     #[error("Could not query users")]
     QueryUsers(#[source] sqlx::Error),
@@ -73,7 +73,7 @@ struct LeaderboardQuery {
 }
 
 async fn leaderboard(query: LeaderboardQuery) -> Result<Html<String>, Error> {
-    let mut conn = db_conn().await?;
+    let mut conn = connection().await?;
 
     let users: Vec<_> = sqlx::query_as!(User, "SELECT * FROM users ORDER BY score DESC")
         .fetch_all(&mut conn)
@@ -106,7 +106,7 @@ async fn fishes() -> Result<Html<String>, Error> {
         is_trash: bool,
     }
 
-    let mut conn = db_conn().await?;
+    let mut conn = connection().await?;
 
     let fishes = sqlx::query_as!(Fish, "SELECT * FROM fishes")
         .fetch_all(&mut conn)
@@ -142,7 +142,7 @@ async fn fishes() -> Result<Html<String>, Error> {
 }
 
 async fn user(username: String) -> Result<Response<Body>, Error> {
-    let mut conn = db_conn().await?;
+    let mut conn = connection().await?;
 
     let user = if let Some(user) =
         sqlx::query_as!(User, "SELECT * FROM users WHERE name = ?", username)
