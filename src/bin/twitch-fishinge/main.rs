@@ -320,6 +320,18 @@ async fn get_fishes(conn: &mut SqliteConnection) -> Result<Vec<Fish>, Error> {
 }
 
 async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Error> {
+    if msg.message_text.starts_with("!bot") {
+        client
+            .say_in_reply_to(
+                msg,
+                "this micro bot allows you to fish. Type `❓ Fishinge` for help.".to_string(),
+            )
+            .await
+            .map_err(Error::ReplyToMessage)?;
+
+        return Ok(());
+    }
+
     if let Some(captures) = COMMAND_REGEX.captures(&msg.message_text) {
         match captures.name("emote").map(|m| m.as_str()) {
             Some("🐱") => {
