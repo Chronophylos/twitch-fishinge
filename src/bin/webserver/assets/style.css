@@ -2,7 +2,7 @@
     font-family: 'Neonderthaw';
     font-style: normal;
     font-weight: 400;
-    src: url('Neonderthaw-Regular.ttf');
+    src: url('/Neonderthaw-Regular.ttf');
     font-display: swap;
 }
 
@@ -10,7 +10,7 @@
     font-family: 'Righteous';
     font-style: normal;
     font-weight: 400;
-    src: url('Righteous-Regular.ttf');
+    src: url('/Righteous-Regular.ttf');
     font-display: swap;
 }
 

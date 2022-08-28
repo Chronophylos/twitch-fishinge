@@ -393,10 +393,10 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                 let mut conn = db_conn().await?;
 
                 // get most valuable catch
-                let catch_query = sqlx::query_as_unchecked!(
+                let catch_query = sqlx::query_as!(
                     Catch,
                     r#"
-                    SELECT f.name as fish_name, c.weight, c.value
+                    SELECT f.name as "fish_name!", c.weight as "weight: f32", c.value as "value!: f32"
                     FROM catches c
                     INNER JOIN fishes f
                         ON f.id = c.fish_id

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<a href="/leaderboard">go back</a>
+<div class="wrapper">
+	<h1>{{ user_name }}</h1>
+	<table>
+		<tr>
+			<td>Total Score</td>
+			<td>{{ total_score | score }}</td>
+		</tr>
+		{% if top_catch %}
+		<tr>
+			<td>Most Valuable Catch</td>
+			<td>{{ top_catch.name }} worth
+				{% if top_catch.value > 0 -%}
+				{{ top_catch.value | score }}
+				{% else -%}
+				nothing
+				{% endif %}
+			</td>
+		</tr>
+		{% endif %}
+	</table>
+</div>
+{% endblock content %}

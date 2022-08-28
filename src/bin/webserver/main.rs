@@ -5,12 +5,17 @@ use log::error;
 use once_cell::sync::Lazy;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 use tera::{Context, Tera, Value};
 use twitch_fishinge::{
     db_conn,
     models::{Fish, User},
 };
-use warp::{reply::Html, Filter, Reply};
+use warp::{
+    hyper::{Body, Response},
+    reply::Html,
+    Filter, Reply,
+};
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
@@ -23,8 +28,14 @@ enum Error {
     #[error("Could not query fishes")]
     QueryFishes(#[source] sqlx::Error),
 
+    #[error("Could not query catches")]
+    QueryCatches(#[source] sqlx::Error),
+
     #[error("Could not render template")]
     RenderTemplate(#[source] tera::Error),
+
+    #[error("Could not build response")]
+    BuildResponse(#[from] warp::http::Error),
 }
 
 fn score_formatter(value: &Value, _args: &HashMap<String, Value>) -> tera::Result<Value> {
@@ -49,6 +60,7 @@ static TEMPLATES: Lazy<Tera> = Lazy::new(|| {
         ("base.html", include_str!("templates/base.html")),
         ("fishes.html", include_str!("templates/fishes.html")),
         ("index.html", include_str!("templates/index.html")),
+        ("user.html", include_str!("templates/user.html")),
         (
             "leaderboard.html",
             include_str!("templates/leaderboard.html"),
@@ -135,6 +147,58 @@ async fn fishes() -> Result<Html<String>, Error> {
     ))
 }
 
+async fn user(username: String) -> Result<Response<Body>, Error> {
+    let mut conn = db_conn().await?;
+
+    let user = if let Some(user) =
+        sqlx::query_as!(User, "SELECT * FROM users WHERE name = ?", username)
+            .fetch_optional(&mut conn)
+            .await
+            .map_err(Error::QueryUsers)?
+    {
+        user
+    } else {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    };
+
+    #[derive(FromRow, Serialize)]
+    struct Catch {
+        name: String,
+        weight: Option<f64>,
+        value: f64,
+    }
+
+    let top_catch = sqlx::query_as!(
+        Catch,
+        r#"
+        SELECT f.name as "name!", c.weight, c.value as "value!"
+        FROM catches c
+        INNER JOIN fishes f
+            ON f.id = c.fish_id
+        WHERE c.user_id = ?
+        ORDER BY value DESC
+        LIMIT 1
+        "#,
+        user.id
+    )
+    .fetch_optional(&mut conn)
+    .await
+    .map_err(Error::QueryCatches)?;
+
+    let mut context = Context::new();
+    context.insert("user_name", &user.name);
+    context.insert("total_score", &user.score);
+    context.insert("top_catch", &top_catch);
+
+    Ok(Response::builder()
+        .header("content-type", "text/html")
+        .body(Body::from(
+            TEMPLATES
+                .render("user.html", &context)
+                .map_err(Error::RenderTemplate)?,
+        ))?)
+}
+
 fn index() -> Result<Html<String>, Error> {
     Ok(warp::reply::html(
         TEMPLATES
@@ -206,6 +270,18 @@ async fn main() -> Result<(), Error> {
         }
     });
 
+    // GET /user/:USERNAME
+    let user_route = warp::path!("user" / String).map(|username| match block_on(user(username)) {
+        Ok(html) => Box::new(html) as Box<dyn Reply>,
+        Err(err) => {
+            error!("Could not render user: {:?}", err);
+            Box::new(warp::reply::with_status(
+                warp::reply(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )) as Box<dyn Reply>
+        }
+    });
+
     let assets_route = assets! {
         "android-chrome-144x144.png" => "image/png",
         "apple-touch-icon.png" => "image/png",
@@ -224,7 +300,7 @@ async fn main() -> Result<(), Error> {
     };
 
     let routes = warp::get()
-        .and(root.or(leaderboard_route).or(fishes_route))
+        .and(root.or(leaderboard_route).or(fishes_route).or(user_route))
         .or(assets_route);
 
     warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;
