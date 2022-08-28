@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use database::{
     connection,
     entities::{catches, prelude::*, users},
@@ -7,14 +5,14 @@ use database::{
 use dotenvy::dotenv;
 use eyre::WrapErr;
 use futures_lite::future::block_on;
-use log::error;
+use log::{debug, error};
 use once_cell::sync::Lazy;
 use sea_orm::{
     sea_query::Expr, ColumnTrait, DatabaseConnection, DeriveColumn, EntityTrait, EnumIter,
     FromQueryResult, IdenStatic, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
 };
 use serde::{Deserialize, Serialize};
-use tera::{Context, Tera, Value};
+use tera::{Context, Tera};
 use warp::{
     hyper::{Body, Response, StatusCode},
     reply::Html,
@@ -36,14 +34,6 @@ enum Error {
     BuildResponse(#[from] warp::http::Error),
 }
 
-fn round_to_two(value: &Value, _args: &HashMap<String, Value>) -> tera::Result<Value> {
-    match value {
-        Value::Number(n) if n.is_f64() => Ok(Value::String(format!("{:.2}", n.as_f64().unwrap()))),
-        Value::Number(n) if n.is_i64() => Ok(Value::String(format!("{}.00", n.as_i64().unwrap()))),
-        _ => Err(tera::Error::msg("Could not format score")),
-    }
-}
-
 static TEMPLATES: Lazy<Tera> = Lazy::new(|| {
     //let mut tera = Tera::new("templates/**/*.html").unwrap();
     let mut tera = Tera::default();
@@ -58,11 +48,10 @@ static TEMPLATES: Lazy<Tera> = Lazy::new(|| {
         ),
     ])
     .unwrap();
-    tera.register_filter("round2", round_to_two);
     tera
 });
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 #[serde(default)]
 struct LeaderboardQuery {
     include_bots: bool,
@@ -72,6 +61,8 @@ async fn leaderboard(
     db: &DatabaseConnection,
     query: LeaderboardQuery,
 ) -> Result<Html<String>, Error> {
+    debug!("GET /leaderboard {:?}", query);
+
     #[derive(FromQueryResult, Serialize)]
     struct UserWithScore {
         name: String,
@@ -84,15 +75,18 @@ async fn leaderboard(
         Score,
     }
 
+    debug!("Quering leaderboard");
     let users = Catches::find()
         .column_as(catches::Column::Value.sum(), QueryAs::Score)
-        .filter(Expr::col(QueryAs::Score).gt(0.0))
         .join(JoinType::InnerJoin, catches::Relation::Users.def())
         .group_by(catches::Column::Id)
         .filter(Expr::col(users::Column::IsBot).eq(query.include_bots))
         .into_model::<UserWithScore>()
         .all(db)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|u| u.score > f32::EPSILON)
+        .collect::<Vec<_>>();
 
     let mut context = Context::new();
     context.insert("users", &users);
@@ -105,10 +99,11 @@ async fn leaderboard(
 }
 
 async fn fishes(db: &DatabaseConnection) -> Result<Html<String>, Error> {
+    debug!("GET /fishes");
+
     #[derive(Serialize)]
     struct Row {
-        name: String,
-        count: i32,
+        html_name: String,
         chance: f32,
         base_value: f32,
         min_weight: f32,
@@ -116,6 +111,7 @@ async fn fishes(db: &DatabaseConnection) -> Result<Html<String>, Error> {
         is_trash: bool,
     }
 
+    debug!("Quering fishes");
     let fishes = Fishes::find().all(db).await?;
 
     let population: i32 = fishes.iter().map(|fish| fish.count).sum();
@@ -123,8 +119,7 @@ async fn fishes(db: &DatabaseConnection) -> Result<Html<String>, Error> {
     let mut rows: Vec<_> = fishes
         .into_iter()
         .map(|fish| Row {
-            name: fish.name,
-            count: fish.count,
+            html_name: fish.html_name,
             chance: fish.count as f32 / population as f32,
             base_value: fish.base_value,
             min_weight: fish.min_weight,
@@ -147,6 +142,9 @@ async fn fishes(db: &DatabaseConnection) -> Result<Html<String>, Error> {
 }
 
 async fn user(db: &DatabaseConnection, username: String) -> Result<Response<Body>, Error> {
+    debug!("GET /user/{username}");
+
+    debug!("Quering user {username}");
     let user = if let Some(user) = Users::find()
         .filter(users::Column::Name.eq(username.to_lowercase()))
         .one(db)
@@ -164,6 +162,7 @@ async fn user(db: &DatabaseConnection, username: String) -> Result<Response<Body
         value: f64,
     }
 
+    debug!("Quering top catch");
     let top_catch = Catches::find()
         .filter(catches::Column::UserId.eq(user.id))
         .order_by_desc(catches::Column::Value)
@@ -200,6 +199,8 @@ async fn user(db: &DatabaseConnection, username: String) -> Result<Response<Body
 }
 
 fn index() -> Result<Html<String>, Error> {
+    debug!("GET /");
+
     Ok(warp::reply::html(
         TEMPLATES
             .render("index.html", &Context::new())

@@ -12,15 +12,15 @@
 		</tr>
 		{% for fish in fishes %}
 		<tr>
-			<td>{{ fish.name }}</td>
-			<td>{{ fish.chance * 100 | round2 }}%</td>
-			<td>${{ fish.base_value | round2 }}</td>
+			<td>{{ fish.html_name | safe }}</td>
+			<td>{{ fish.chance * 100 | round(precision=2) }}%</td>
+			<td>${{ fish.base_value | round(precision=2) }}</td>
 			<td>
-				{% if fish.min_weight -%}
-				{% if fish.max_weight -%}
-				{{ fish.min_weight }}kg - {{ fish.max_weight }}kg
-				{%- endif %}
-				{%- endif %}
+				{%- if fish.min_weight -%}
+				{%- if fish.max_weight -%}
+				{{ fish.min_weight | round(precision=1) }}kg - {{ fish.max_weight | round(precision=1) }}kg
+				{%- endif -%}
+				{%- endif -%}
 			</td>
 		</tr>
 		{% endfor %}

@@ -10,7 +10,7 @@ use std::{
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use database::{
     connection,
-    entities::{catches, fishes, prelude::*, users},
+    entities::{catches, fishes, messages, prelude::*, sea_orm_active_enums::MessageType, users},
     migrate,
 };
 use dotenvy::dotenv;
@@ -21,7 +21,7 @@ use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use regex::Regex;
 use sea_orm::{
     sea_query::OnConflict, ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection,
-    EntityTrait, QueryFilter, QueryOrder,
+    DeriveColumn, EntityTrait, EnumIter, IdenStatic, QueryFilter, QueryOrder,
 };
 use twitch_irc::{
     login::RefreshingLoginCredentials,
@@ -436,24 +436,23 @@ async fn handle_fishinge(
                 (cooled_off - now).num_seconds() as u64,
             ));
 
-            const MESSAGES: [&str; 7] = [
-                "you can't fish yet.",
-                "you just fished!",
-                "you lost your fishing pole!",
-                "you have no bobbers.",
-                "not yet!",
-                "pirates stole your boat R) !",
-                "Oh snap! Your line broke.",
-            ];
+            let mut biased_rng = StdRng::seed_from_u64(user.last_fished.timestamp() as u64);
+
+            #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
+            enum QueryAs {
+                Text,
+            }
+
+            let messages: Vec<String> = Messages::find()
+                .filter(messages::Column::Type.eq(MessageType::Cooldown))
+                .into_values::<_, QueryAs>()
+                .all(db)
+                .await?;
+
+            let message = messages.choose(&mut biased_rng).unwrap();
 
             client
-                .say_in_reply_to(
-                    msg,
-                    format!(
-                        "{} Try again in {cooldown}.",
-                        MESSAGES.choose(&mut rng).unwrap()
-                    ),
-                )
+                .say_in_reply_to(msg, format!("{} Try again in {cooldown}.", message))
                 .await
                 .map_err(Error::ReplyToMessage)?;
 
