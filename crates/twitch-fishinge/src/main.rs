@@ -2,21 +2,27 @@
 
 mod config;
 
-use std::{collections::HashSet, env, fmt::Display, ops::Range, time::Duration as StdDuration};
+use std::{
+    collections::HashSet, env, fmt::Display, ops::Range, sync::RwLock,
+    time::Duration as StdDuration,
+};
 
-use chrono::{Duration, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use database::{
     connection,
-    models::{Fish as FishModel, User as UserModel},
+    entities::{catches, fishes, prelude::*, users},
+    migrate,
 };
 use dotenvy::dotenv;
 use eyre::WrapErr;
 use log::{debug, error, info, trace, warn};
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::Lazy;
 use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use regex::Regex;
-use sqlx::{Connection, FromRow, SqliteConnection};
-use tokio::sync::OnceCell as AsyncOnceCell;
+use sea_orm::{
+    sea_query::OnConflict, ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection,
+    EntityTrait, QueryFilter, QueryOrder,
+};
 use twitch_irc::{
     login::RefreshingLoginCredentials,
     message::{PrivmsgMessage, ServerMessage},
@@ -38,26 +44,8 @@ enum Error {
     #[error("Could not open database connection")]
     OpenDatabase(#[from] database::Error),
 
-    #[error("Could not close database connection")]
-    CloseDatabase(#[source] sqlx::Error),
-
-    #[error("Could not query user")]
-    QueryUser(#[source] sqlx::Error),
-
-    #[error("Could not create user")]
-    CreateUser(#[source] sqlx::Error),
-
-    #[error("Could not update user")]
-    UpdateUser(#[source] sqlx::Error),
-
-    #[error("Could not query fishes")]
-    QueryFishes(#[source] sqlx::Error),
-
-    #[error("Could not query catches")]
-    QueryCatches(#[source] sqlx::Error),
-
-    #[error("Could not migrate database")]
-    MigrateDatabase(#[from] sqlx::migrate::MigrateError),
+    #[error("Database error")]
+    Database(#[from] sea_orm::DbErr),
 
     #[error("Could not reply to message")]
     ReplyToMessage(
@@ -68,14 +56,13 @@ enum Error {
     NoFishesInDatabase,
 }
 
-static FISHES: AsyncOnceCell<Vec<Fish>> = AsyncOnceCell::const_new();
-static FISH_POPULATION: OnceCell<u32> = OnceCell::new();
+static FISH_POPULATION: RwLock<i32> = RwLock::new(0);
 
 static COOLDOWN: Lazy<Duration> = Lazy::new(|| Duration::hours(6));
 
 #[derive(Debug, Clone)]
 struct Fish {
-    id: i64,
+    id: i32,
     name: String,
     count: u32,
     base_value: i32,
@@ -95,15 +82,15 @@ impl Fish {
     }
 }
 
-impl From<FishModel> for Fish {
-    fn from(fish: FishModel) -> Self {
+impl From<database::entities::fishes::Model> for Fish {
+    fn from(fish: database::entities::fishes::Model) -> Self {
         Self {
             id: fish.id,
             name: fish.name,
             count: fish.count as u32,
             base_value: fish.base_value as i32,
-            weight_range: if fish.min_weight > f64::EPSILON && fish.max_weight > f64::EPSILON {
-                Some(fish.min_weight as f32..fish.max_weight as f32)
+            weight_range: if fish.min_weight > f32::EPSILON && fish.max_weight > f32::EPSILON {
+                Some(fish.min_weight..fish.max_weight)
             } else {
                 None
             },
@@ -117,7 +104,7 @@ impl Display for Fish {
             f,
             "{} ({:.1}%)",
             self.name,
-            self.count as f32 / *FISH_POPULATION.get().unwrap() as f32 * 100.0
+            self.count as f32 / *FISH_POPULATION.read().unwrap() as f32 * 100.0
         )?;
 
         if let Some(weight) = &self.weight_range {
@@ -128,7 +115,7 @@ impl Display for Fish {
     }
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 struct Catch {
     fish_name: String,
     weight: Option<f32>,
@@ -216,35 +203,10 @@ async fn main() -> eyre::Result<()> {
 }
 
 async fn main_() -> Result<(), Error> {
-    let mut conn = connection().await?;
+    let db = connection().await?;
 
     info!("Running Migrations");
-    sqlx::migrate!("../../migrations").run(&mut conn).await?;
-
-    FISHES
-        .get_or_try_init(|| async {
-            let fishes: Vec<_> = sqlx::query_as!(FishModel, "SELECT * FROM fishes")
-                .fetch_all(&mut conn)
-                .await
-                .map_err(Error::QueryFishes)?
-                .into_iter()
-                .map(Fish::from)
-                .collect();
-
-            let population = fishes.iter().map(|fish| fish.count).sum();
-
-            FISH_POPULATION.get_or_init(|| population);
-
-            info!(
-                "Loaded {} fish species with a total population of {population}",
-                fishes.len()
-            );
-
-            Result::<_, Error>::Ok(fishes)
-        })
-        .await?;
-
-    conn.close().await.map_err(Error::CloseDatabase)?;
+    migrate(&db).await?;
 
     let settings = Config::load()?;
     let config = settings.client_config();
@@ -261,7 +223,7 @@ async fn main_() -> Result<(), Error> {
                 trace!("Received message: {:?}", &message);
                 match message {
                     ServerMessage::Privmsg(msg) => {
-                        if let Err(err) = handle_privmsg(&client, &msg).await {
+                        if let Err(err) = handle_privmsg(&db, &client, &msg).await {
                             error!("Error handling privmsg: {:#?}", err);
                         }
                     }
@@ -309,22 +271,21 @@ static COMMAND_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^((?P<emote>\S+)\s+)?Fishinge( (?P<args>.*))?$").unwrap());
 const WEB_URL: &str = "https://fishinge.chronophylos.com";
 
-async fn get_fishes(conn: &mut SqliteConnection) -> Result<Vec<Fish>, Error> {
-    let fishes: Vec<_> = sqlx::query_as!(FishModel, "SELECT * FROM fishes")
-        .fetch_all(conn)
-        .await
-        .map_err(Error::QueryFishes)?
-        .into_iter()
-        .map(Fish::from)
-        .collect();
+async fn get_fishes(db: &DatabaseConnection) -> Result<Vec<Fish>, Error> {
+    let fishes = Fishes::find().all(db).await?;
 
     let population = fishes.iter().map(|fish| fish.count).sum();
 
-    FISH_POPULATION.get_or_init(|| population);
-    Ok(fishes)
+    *FISH_POPULATION.write().unwrap() = population;
+
+    Ok(fishes.into_iter().map(Fish::from).collect())
 }
 
-async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Error> {
+async fn handle_privmsg(
+    db: &DatabaseConnection,
+    client: &Client,
+    msg: &PrivmsgMessage,
+) -> Result<(), Error> {
     if msg.message_text.starts_with("!bot") {
         client
             .say_in_reply_to(
@@ -380,18 +341,25 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                         .trim_start_matches('@')
                         .to_lowercase();
 
-                    let mut conn = connection().await?;
-                    let epoch = NaiveDateTime::from_timestamp(0, 0);
+                    let epoch =
+                        DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(61, 0), Utc).into();
 
-                    sqlx::query!(
-                        r#"
-                        INSERT OR IGNORE INTO users (name, last_fished, is_bot, score) VALUES (?, ?, true, 0);
-                        UPDATE users SET is_bot = true WHERE name = ?;
-                        "#,
-                        target,
-                        epoch,
-                        target
-                    ).execute(&mut conn).await.map_err(Error::UpdateUser)?;
+                    let user = users::ActiveModel {
+                        name: ActiveValue::set(target.to_string()),
+                        is_bot: ActiveValue::set(true),
+                        last_fished: ActiveValue::set(epoch),
+                        ..Default::default()
+                    };
+
+                    users::Entity::insert(user)
+                        .on_conflict(
+                            // on conflict do update
+                            OnConflict::column(users::Column::Name)
+                                .update_column(users::Column::IsBot)
+                                .to_owned(),
+                        )
+                        .exec(db)
+                        .await?;
 
                     client
                         .say_in_reply_to(msg, format!("designated {} as bot", target))
@@ -410,29 +378,21 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
                 Ok(())
             }
             Some("💎") => {
-                let mut conn = connection().await?;
+                let query: Option<(catches::Model, Option<fishes::Model>)> = Catches::find()
+                    .inner_join(Users)
+                    .filter(users::Column::Name.eq(msg.sender.login.to_lowercase()))
+                    .order_by_desc(catches::Column::Value)
+                    .find_also_related(Fishes)
+                    .one(db)
+                    .await?;
 
-                // get most valuable catch
-                let catch_query = sqlx::query_as!(
-                    Catch,
-                    r#"
-                    SELECT f.name as "fish_name!", c.weight as "weight: f32", c.value as "value!: f32"
-                    FROM catches c
-                    INNER JOIN fishes f
-                        ON f.id = c.fish_id
-                    INNER JOIN users u
-                        ON c.user_id = u.id
-                    WHERE u.name = ?
-                    ORDER BY value DESC
-                    LIMIT 1
-                    "#,
-                    msg.sender.login
-                )
-                .fetch_optional(&mut conn)
-                .await
-                .map_err(Error::QueryCatches)?;
+                if let Some((catch_model, Some(fish_model))) = query {
+                    let catch = Catch {
+                        fish_name: fish_model.name,
+                        weight: catch_model.weight,
+                        value: catch_model.value,
+                    };
 
-                if let Some(catch) = catch_query {
                     client
                         .say_in_reply_to(msg, format!("your most valuable catch is {}", catch))
                         .await
@@ -446,7 +406,7 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
 
                 Ok(())
             }
-            None => handle_fishinge(client, msg).await,
+            None => handle_fishinge(db, client, msg).await,
             _ => Ok(()),
         }
     } else {
@@ -454,22 +414,20 @@ async fn handle_privmsg(client: &Client, msg: &PrivmsgMessage) -> Result<(), Err
     }
 }
 
-async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Error> {
-    let now = Utc::now().naive_utc();
+async fn handle_fishinge(
+    db: &DatabaseConnection,
+    client: &Client,
+    msg: &PrivmsgMessage,
+) -> Result<(), Error> {
+    let now = Utc::now().into();
     // TODO: remove unwrap
     let mut rng = StdRng::from_rng(thread_rng()).unwrap();
 
-    let mut conn = connection().await?;
-
     // get user from database
-    let id = if let Some(user) = sqlx::query_as!(
-        UserModel,
-        "SELECT * FROM users WHERE name = ?",
-        msg.sender.login
-    )
-    .fetch_optional(&mut conn)
-    .await
-    .map_err(Error::QueryUser)?
+    let user = if let Some(user) = Users::find()
+        .filter(users::Column::Name.eq(msg.sender.login.to_lowercase()))
+        .one(db)
+        .await?
     {
         // cooldown
         let cooled_off = user.last_fished + *COOLDOWN;
@@ -498,24 +456,26 @@ async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Er
                 )
                 .await
                 .map_err(Error::ReplyToMessage)?;
+
             return Ok(());
         }
-        user.id
+        users::ActiveModel {
+            last_fished: ActiveValue::set(now),
+            ..user.into()
+        }
+        .update(db)
+        .await?
     } else {
         // create user
-        let id = sqlx::query!(
-            "INSERT INTO users(name, last_fished, score) VALUES (?, ?, ?)",
-            msg.sender.login,
-            now,
-            0
-        )
-        .execute(&mut conn)
-        .await
-        .map_err(Error::CreateUser)?;
-        id.last_insert_rowid()
+        let user = users::ActiveModel {
+            name: ActiveValue::set(msg.sender.login.to_lowercase()),
+            last_fished: ActiveValue::set(now),
+            ..Default::default()
+        };
+        user.insert(db).await?
     };
 
-    let fishes = get_fishes(&mut conn).await?;
+    let fishes = get_fishes(db).await?;
 
     if fishes.is_empty() {
         return Err(Error::NoFishesInDatabase);
@@ -529,30 +489,16 @@ async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Er
 
     info!("{} caught {catch}", msg.sender.name);
 
-    // TODO: dont use score any more
-    sqlx::query!(
-        r#"
-        UPDATE users
-        SET
-            score = score + ?,
-            last_fished = ?
-        WHERE id = ?;
-        INSERT INTO
-            catches(fish_id, user_id, caught_at, weight, value)
-        VALUES (?, ?, ?, ?, ?);
-        "#,
-        catch.value,
-        now,
-        id,
-        fish.id,
-        id,
-        now,
-        catch.weight,
-        catch.value
-    )
-    .execute(&mut conn)
-    .await
-    .map_err(Error::UpdateUser)?;
+    catches::ActiveModel {
+        user_id: ActiveValue::set(user.id),
+        fish_id: ActiveValue::set(fish.id),
+        weight: ActiveValue::set(catch.weight),
+        caught_at: ActiveValue::set(now),
+        value: ActiveValue::set(catch.value),
+        ..Default::default()
+    }
+    .insert(db)
+    .await?;
 
     client
         .say_in_reply_to(msg, format!("caught a {catch}!"))

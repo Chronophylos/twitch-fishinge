@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+#[allow(clippy::derive_partial_eq_without_eq)]
 pub mod entities;
 
 use std::env;

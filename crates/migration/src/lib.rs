@@ -3,6 +3,9 @@ pub use sea_orm_migration::prelude::*;
 mod m20220828_125955_create_fishes_table;
 mod m20220828_131908_create_users_table;
 mod m20220828_132240_create_catches_table;
+mod m20220828_135214_create_messages_table;
+mod m20220828_143222_create_seasons_table;
+mod m20220828_143304_create_seasons_data_table;
 
 pub struct Migrator;
 
@@ -13,6 +16,9 @@ impl MigratorTrait for Migrator {
             Box::new(m20220828_125955_create_fishes_table::Migration),
             Box::new(m20220828_131908_create_users_table::Migration),
             Box::new(m20220828_132240_create_catches_table::Migration),
+            Box::new(m20220828_135214_create_messages_table::Migration),
+            Box::new(m20220828_143222_create_seasons_table::Migration),
+            Box::new(m20220828_143304_create_seasons_data_table::Migration),
         ]
     }
 }

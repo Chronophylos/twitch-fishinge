@@ -2,4 +2,7 @@
 
 pub use super::catches::Entity as Catches;
 pub use super::fishes::Entity as Fishes;
+pub use super::messages::Entity as Messages;
+pub use super::season_data::Entity as SeasonData;
+pub use super::seasons::Entity as Seasons;
 pub use super::users::Entity as Users;

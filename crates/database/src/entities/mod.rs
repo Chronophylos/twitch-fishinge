@@ -4,4 +4,8 @@ pub mod prelude;
 
 pub mod catches;
 pub mod fishes;
+pub mod messages;
+pub mod sea_orm_active_enums;
+pub mod season_data;
+pub mod seasons;
 pub mod users;

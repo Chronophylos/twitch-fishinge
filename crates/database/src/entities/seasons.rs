@@ -3,27 +3,17 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "users")]
+#[sea_orm(table_name = "seasons")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub name: String,
-    pub last_fished: DateTimeWithTimeZone,
-    pub is_bot: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::catches::Entity")]
-    Catches,
     #[sea_orm(has_many = "super::season_data::Entity")]
     SeasonData,
-}
-
-impl Related<super::catches::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Catches.def()
-    }
 }
 
 impl Related<super::season_data::Entity> for Entity {

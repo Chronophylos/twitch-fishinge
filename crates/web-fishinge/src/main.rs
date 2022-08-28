@@ -2,19 +2,21 @@ use std::collections::HashMap;
 
 use database::{
     connection,
-    models::{Fish, User},
+    entities::{catches, prelude::*, users},
 };
 use dotenvy::dotenv;
 use eyre::WrapErr;
 use futures_lite::future::block_on;
 use log::error;
 use once_cell::sync::Lazy;
-use reqwest::StatusCode;
+use sea_orm::{
+    sea_query::Expr, ColumnTrait, DatabaseConnection, DeriveColumn, EntityTrait, EnumIter,
+    FromQueryResult, IdenStatic, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
+};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use tera::{Context, Tera, Value};
 use warp::{
-    hyper::{Body, Response},
+    hyper::{Body, Response, StatusCode},
     reply::Html,
     Filter, Reply,
 };
@@ -24,14 +26,8 @@ enum Error {
     #[error("Could not open database connection")]
     OpenDatabase(#[from] database::Error),
 
-    #[error("Could not query users")]
-    QueryUsers(#[source] sqlx::Error),
-
-    #[error("Could not query fishes")]
-    QueryFishes(#[source] sqlx::Error),
-
-    #[error("Could not query catches")]
-    QueryCatches(#[source] sqlx::Error),
+    #[error("Database error")]
+    Database(#[from] sea_orm::DbErr),
 
     #[error("Could not render template")]
     RenderTemplate(#[source] tera::Error),
@@ -72,17 +68,31 @@ struct LeaderboardQuery {
     include_bots: bool,
 }
 
-async fn leaderboard(query: LeaderboardQuery) -> Result<Html<String>, Error> {
-    let mut conn = connection().await?;
+async fn leaderboard(
+    db: &DatabaseConnection,
+    query: LeaderboardQuery,
+) -> Result<Html<String>, Error> {
+    #[derive(FromQueryResult, Serialize)]
+    struct UserWithScore {
+        name: String,
+        is_bot: bool,
+        score: f32,
+    }
 
-    let users: Vec<_> = sqlx::query_as!(User, "SELECT * FROM users ORDER BY score DESC")
-        .fetch_all(&mut conn)
-        .await
-        .map_err(Error::QueryUsers)?
-        .into_iter()
-        .filter(|user| user.score > 0.0)
-        .filter(|user| !user.is_bot || query.include_bots)
-        .collect();
+    #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
+    enum QueryAs {
+        Score,
+    }
+
+    let users = Catches::find()
+        .column_as(catches::Column::Value.sum(), QueryAs::Score)
+        .filter(Expr::col(QueryAs::Score).gt(0.0))
+        .join(JoinType::InnerJoin, catches::Relation::Users.def())
+        .group_by(catches::Column::Id)
+        .filter(Expr::col(users::Column::IsBot).eq(query.include_bots))
+        .into_model::<UserWithScore>()
+        .all(db)
+        .await?;
 
     let mut context = Context::new();
     context.insert("users", &users);
@@ -94,33 +104,28 @@ async fn leaderboard(query: LeaderboardQuery) -> Result<Html<String>, Error> {
     ))
 }
 
-async fn fishes() -> Result<Html<String>, Error> {
+async fn fishes(db: &DatabaseConnection) -> Result<Html<String>, Error> {
     #[derive(Serialize)]
     struct Row {
         name: String,
-        count: i64,
-        chance: f64,
-        base_value: i64,
-        min_weight: f64,
-        max_weight: f64,
+        count: i32,
+        chance: f32,
+        base_value: f32,
+        min_weight: f32,
+        max_weight: f32,
         is_trash: bool,
     }
 
-    let mut conn = connection().await?;
+    let fishes = Fishes::find().all(db).await?;
 
-    let fishes = sqlx::query_as!(Fish, "SELECT * FROM fishes")
-        .fetch_all(&mut conn)
-        .await
-        .map_err(Error::QueryFishes)?;
-
-    let population: i64 = fishes.iter().map(|fish| fish.count).sum();
+    let population: i32 = fishes.iter().map(|fish| fish.count).sum();
 
     let mut rows: Vec<_> = fishes
         .into_iter()
         .map(|fish| Row {
             name: fish.name,
             count: fish.count,
-            chance: fish.count as f64 / population as f64,
+            chance: fish.count as f32 / population as f32,
             base_value: fish.base_value,
             min_weight: fish.min_weight,
             max_weight: fish.max_weight,
@@ -141,47 +146,48 @@ async fn fishes() -> Result<Html<String>, Error> {
     ))
 }
 
-async fn user(username: String) -> Result<Response<Body>, Error> {
-    let mut conn = connection().await?;
-
-    let user = if let Some(user) =
-        sqlx::query_as!(User, "SELECT * FROM users WHERE name = ?", username)
-            .fetch_optional(&mut conn)
-            .await
-            .map_err(Error::QueryUsers)?
+async fn user(db: &DatabaseConnection, username: String) -> Result<Response<Body>, Error> {
+    let user = if let Some(user) = Users::find()
+        .filter(users::Column::Name.eq(username.to_lowercase()))
+        .one(db)
+        .await?
     {
         user
     } else {
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
 
-    #[derive(FromRow, Serialize)]
-    struct Catch {
+    #[derive(FromQueryResult, Serialize)]
+    struct TopCatch {
         name: String,
         weight: Option<f64>,
         value: f64,
     }
 
-    let top_catch = sqlx::query_as!(
-        Catch,
-        r#"
-        SELECT f.name as "name!", c.weight, c.value as "value!"
-        FROM catches c
-        INNER JOIN fishes f
-            ON f.id = c.fish_id
-        WHERE c.user_id = ?
-        ORDER BY value DESC
-        LIMIT 1
-        "#,
-        user.id
-    )
-    .fetch_optional(&mut conn)
-    .await
-    .map_err(Error::QueryCatches)?;
+    let top_catch = Catches::find()
+        .filter(catches::Column::UserId.eq(user.id))
+        .order_by_desc(catches::Column::Value)
+        .join(JoinType::InnerJoin, catches::Relation::Fishes.def())
+        .group_by(catches::Column::Id)
+        .into_model::<TopCatch>()
+        .one(db)
+        .await?;
+
+    #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
+    enum QueryAs {
+        Score,
+    }
+
+    let total_score: Option<i32> = Catches::find()
+        .column_as(catches::Column::Value.sum(), "score")
+        .select_only()
+        .into_values::<_, QueryAs>()
+        .one(db)
+        .await?;
 
     let mut context = Context::new();
     context.insert("user_name", &user.name);
-    context.insert("total_score", &user.score);
+    context.insert("total_score", &total_score);
     context.insert("top_catch", &top_catch);
 
     Ok(Response::builder()
@@ -229,6 +235,8 @@ async fn main() -> eyre::Result<()> {
 }
 
 async fn main_() -> Result<(), Error> {
+    let db = connection().await?;
+
     // GET /
     let root = warp::path::end().map(|| match index() {
         Ok(html) => Box::new(html) as Box<dyn Reply>,
@@ -244,8 +252,9 @@ async fn main_() -> Result<(), Error> {
     // GET /leaderboard
     let leaderboard_route = warp::path("leaderboard")
         .and(warp::query::<LeaderboardQuery>())
-        .map(
-            |query: LeaderboardQuery| match block_on(leaderboard(query)) {
+        .map({
+            let db = db.clone();
+            move |query: LeaderboardQuery| match block_on(leaderboard(&db, query)) {
                 Ok(html) => Box::new(html) as Box<dyn Reply>,
                 Err(err) => {
                     error!("Could not render leaderboard: {:?}", err);
@@ -254,30 +263,36 @@ async fn main_() -> Result<(), Error> {
                         StatusCode::INTERNAL_SERVER_ERROR,
                     )) as Box<dyn Reply>
                 }
-            },
-        );
+            }
+        });
 
     // GET /fishes
-    let fishes_route = warp::path("fishes").map(|| match block_on(fishes()) {
-        Ok(html) => Box::new(html) as Box<dyn Reply>,
-        Err(err) => {
-            error!("Could not render fishes: {:?}", err);
-            Box::new(warp::reply::with_status(
-                warp::reply(),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            )) as Box<dyn Reply>
+    let fishes_route = warp::path("fishes").map({
+        let db = db.clone();
+        move || match block_on(fishes(&db)) {
+            Ok(html) => Box::new(html) as Box<dyn Reply>,
+            Err(err) => {
+                error!("Could not render fishes: {:?}", err);
+                Box::new(warp::reply::with_status(
+                    warp::reply(),
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                )) as Box<dyn Reply>
+            }
         }
     });
 
     // GET /user/:USERNAME
-    let user_route = warp::path!("user" / String).map(|username| match block_on(user(username)) {
-        Ok(html) => Box::new(html) as Box<dyn Reply>,
-        Err(err) => {
-            error!("Could not render user: {:?}", err);
-            Box::new(warp::reply::with_status(
-                warp::reply(),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            )) as Box<dyn Reply>
+    let user_route = warp::path!("user" / String).map({
+        let db = db.clone();
+        move |username| match block_on(user(&db, username)) {
+            Ok(html) => Box::new(html) as Box<dyn Reply>,
+            Err(err) => {
+                error!("Could not render user: {:?}", err);
+                Box::new(warp::reply::with_status(
+                    warp::reply(),
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                )) as Box<dyn Reply>
+            }
         }
     });
 
