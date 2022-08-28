@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+use database::{
+    db_conn,
+    models::{Fish, User},
+};
 use dotenvy::dotenv;
 use eyre::WrapErr;
 use futures_lite::future::block_on;
@@ -9,10 +13,6 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use tera::{Context, Tera, Value};
-use twitch_fishinge::{
-    db_conn,
-    models::{Fish, User},
-};
 use warp::{
     hyper::{Body, Response},
     reply::Html,
@@ -22,7 +22,7 @@ use warp::{
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("Could not open database connection")]
-    OpenDatabase(#[from] twitch_fishinge::OpenDatabaseError),
+    OpenDatabase(#[from] database::OpenDatabaseError),
 
     #[error("Could not query users")]
     QueryUsers(#[source] sqlx::Error),

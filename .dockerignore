@@ -7,3 +7,4 @@ Justfile
 twitch-fishinge.tar
 .env
 Dockerfile.*
+docker-compose.yaml

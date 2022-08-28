@@ -233,6 +233,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "database"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "log",
+ "serde",
+ "sqlx",
+ "thiserror",
+]
+
+[[package]]
 name = "digest"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1960,6 +1971,7 @@ dependencies = [
  "approx",
  "async-trait",
  "chrono",
+ "database",
  "directories",
  "dotenvy",
  "eyre",
@@ -2294,6 +2306,46 @@ name = "wasm-bindgen-shared"
 version = "0.2.82"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6598dd0bd3c7d51095ff6531a5b23e02acdc81804e30d8f07afb77b7215a140a"
+
+[[package]]
+name = "web-callback"
+version = "0.1.0"
+
+[[package]]
+name = "web-fishinge"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "async-trait",
+ "chrono",
+ "database",
+ "directories",
+ "dotenvy",
+ "eyre",
+ "futures-lite",
+ "humantime 2.1.0",
+ "log",
+ "once_cell",
+ "phf",
+ "pretty_env_logger",
+ "rand",
+ "regex",
+ "reqwest",
+ "ron",
+ "secrecy",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "settings",
+ "sqlx",
+ "tera",
+ "test-case",
+ "thiserror",
+ "tokio",
+ "twitch-irc",
+ "url",
+ "warp",
+]
 
 [[package]]
 name = "web-sys"

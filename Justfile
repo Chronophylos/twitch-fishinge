@@ -10,6 +10,6 @@ run-bot:
 docker:
   cargo clippy -- -D warnings
   cargo sqlx prepare --merged
-  docker build -t twitch-fishinge:latest -f Dockerfile.bot .
-  docker build -t twitch-fishinge-web:latest -f Dockerfile.web .
-  docker save -o twitch-fishinge.tar twitch-fishinge twitch-fishinge-web
+  docker build -t twitch-fishinge:latest -f twitch-fishinge.Dockerfile docker
+  docker build -t web-fishinge:latest -f web-fishinge.Dockerfile docker
+  docker save -o twitch-fishinge.tar twitch-fishinge web-fishinge

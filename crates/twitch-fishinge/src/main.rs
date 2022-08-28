@@ -5,6 +5,10 @@ mod config;
 use std::{fmt::Display, ops::Range, time::Duration as StdDuration};
 
 use chrono::{Duration, NaiveDateTime, Utc};
+use database::{
+    db_conn,
+    models::{Fish as FishModel, User as UserModel},
+};
 use dotenvy::dotenv;
 use eyre::WrapErr;
 use log::{debug, error, info, trace, warn};
@@ -13,10 +17,6 @@ use rand::{rngs::OsRng, seq::SliceRandom, Rng};
 use regex::Regex;
 use sqlx::{Connection, FromRow, SqliteConnection};
 use tokio::sync::OnceCell as AsyncOnceCell;
-use twitch_fishinge::{
-    db_conn,
-    models::{Fish as FishModel, User as UserModel},
-};
 use twitch_irc::{
     login::RefreshingLoginCredentials,
     message::{PrivmsgMessage, ServerMessage},
@@ -36,7 +36,7 @@ enum Error {
     ValidateChannelName(#[from] twitch_irc::validate::Error),
 
     #[error("Could not open database connection")]
-    OpenDatabase(#[from] twitch_fishinge::OpenDatabaseError),
+    OpenDatabase(#[from] database::OpenDatabaseError),
 
     #[error("Could not close database connection")]
     CloseDatabase(#[source] sqlx::Error),
@@ -219,7 +219,7 @@ async fn main_() -> Result<(), Error> {
     let mut conn = db_conn().await?;
 
     info!("Running Migrations");
-    sqlx::migrate!().run(&mut conn).await?;
+    sqlx::migrate!("../../migrations").run(&mut conn).await?;
 
     FISHES
         .get_or_try_init(|| async {
