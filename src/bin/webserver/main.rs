@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use dotenvy::dotenv;
+use eyre::WrapErr;
 use futures_lite::future::block_on;
 use log::error;
 use once_cell::sync::Lazy;
@@ -38,18 +40,11 @@ enum Error {
     BuildResponse(#[from] warp::http::Error),
 }
 
-fn score_formatter(value: &Value, _args: &HashMap<String, Value>) -> tera::Result<Value> {
+fn round_to_two(value: &Value, _args: &HashMap<String, Value>) -> tera::Result<Value> {
     match value {
-        Value::Number(n) if n.is_f64() => Ok(Value::String(format!("${:.2}", n.as_f64().unwrap()))),
-        Value::Number(n) if n.is_i64() => Ok(Value::String(format!("${}.00", n.as_i64().unwrap()))),
+        Value::Number(n) if n.is_f64() => Ok(Value::String(format!("{:.2}", n.as_f64().unwrap()))),
+        Value::Number(n) if n.is_i64() => Ok(Value::String(format!("{}.00", n.as_i64().unwrap()))),
         _ => Err(tera::Error::msg("Could not format score")),
-    }
-}
-
-fn percentage_formatter(value: &Value, _args: &HashMap<String, Value>) -> tera::Result<Value> {
-    match value {
-        Value::Number(n) if n.is_f64() => Ok(Value::String(format!("{:.2}%", n.as_f64().unwrap()))),
-        _ => Err(tera::Error::msg("Could not format percentage")),
     }
 }
 
@@ -67,8 +62,7 @@ static TEMPLATES: Lazy<Tera> = Lazy::new(|| {
         ),
     ])
     .unwrap();
-    tera.register_filter("score", score_formatter);
-    tera.register_filter("percentage", percentage_formatter);
+    tera.register_filter("round2", round_to_two);
     tera
 });
 
@@ -227,9 +221,14 @@ macro_rules! assets {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> eyre::Result<()> {
     pretty_env_logger::init_timed();
+    dotenv().wrap_err("Error loading .env file")?;
 
+    Ok(main_().await?)
+}
+
+async fn main_() -> Result<(), Error> {
     // GET /
     let root = warp::path::end().map(|| match index() {
         Ok(html) => Box::new(html) as Box<dyn Reply>,

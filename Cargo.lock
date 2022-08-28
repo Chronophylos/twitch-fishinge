@@ -1961,6 +1961,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "directories",
+ "dotenvy",
  "eyre",
  "futures-lite",
  "humantime 2.1.0",

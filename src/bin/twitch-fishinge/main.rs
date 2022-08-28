@@ -5,7 +5,8 @@ mod config;
 use std::{fmt::Display, ops::Range, time::Duration as StdDuration};
 
 use chrono::{Duration, NaiveDateTime, Utc};
-use eyre::Report;
+use dotenvy::dotenv;
+use eyre::WrapErr;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::{Lazy, OnceCell};
 use rand::{rngs::OsRng, seq::SliceRandom, Rng};
@@ -207,8 +208,10 @@ impl Display for Catch {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Report> {
+async fn main() -> eyre::Result<()> {
     pretty_env_logger::init_timed();
+    dotenv().wrap_err("Error loading .env file")?;
+
     Ok(main_().await?)
 }
 
@@ -508,6 +511,7 @@ async fn handle_fishinge(client: &Client, msg: &PrivmsgMessage) -> Result<(), Er
 
     info!("{} caught {catch}", msg.sender.name);
 
+    // TODO: dont use score any more
     sqlx::query!(
         r#"
         UPDATE users

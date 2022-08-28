@@ -15,6 +15,7 @@ opt-level = 3
 async-trait = "0.1.57"
 chrono = "0.4.22"
 directories = "4.0.1"
+dotenvy = "0.15.2"
 eyre = "0.6.8"
 futures-lite = "1.12.0"
 humantime = "2.1.0"

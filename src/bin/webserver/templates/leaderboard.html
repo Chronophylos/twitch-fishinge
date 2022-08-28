@@ -20,7 +20,7 @@
 		<tr>
 			<td>{{ loop.index }}</td>
 			<td><a href="/user/{{ user.name }}">{% if user.is_bot %}🤖 {% endif %}{{ user.name }}</a></td>
-			<td>{{ user.score | score }}</td>
+			<td>${{ user.score | round2 }}</td>
 		</tr>
 		{% endfor %}
 	</table>
