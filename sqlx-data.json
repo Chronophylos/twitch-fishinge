@@ -10,6 +10,36 @@
     },
     "query": "\n        UPDATE users\n        SET\n            score = score + ?,\n            last_fished = ?\n        WHERE id = ?;\n        INSERT INTO\n            catches(fish_id, user_id, caught_at, weight, value)\n        VALUES (?, ?, ?, ?, ?);\n        "
   },
+  "339914a391ef40159294e780c73e7368c8f0bb6343117d48ed976df296977669": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name!",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "weight",
+          "ordinal": 1,
+          "type_info": "Float"
+        },
+        {
+          "name": "value!",
+          "ordinal": 2,
+          "type_info": "Float"
+        }
+      ],
+      "nullable": [
+        true,
+        true,
+        true
+      ],
+      "parameters": {
+        "Right": 1
+      }
+    },
+    "query": "\n        SELECT f.name as \"name!\", c.weight, c.value as \"value!\"\n        FROM catches c\n        INNER JOIN fishes f\n            ON f.id = c.fish_id\n        WHERE c.user_id = ?\n        ORDER BY value DESC\n        LIMIT 1\n        "
+  },
   "49c44c2ecae3d9948cacccdc4268c651124c1c78b6cf3be279dcdb76bc5cc5c1": {
     "describe": {
       "columns": [],
@@ -84,21 +114,21 @@
     },
     "query": "INSERT INTO users(name, last_fished, score) VALUES (?, ?, ?)"
   },
-  "77b0417ae6da62e0d8275011b0c2be73155fcceb6a59c5b533c0456b075ac91e": {
+  "6b2793a5ccb83470f98bada9d02e9e9e47eeb8193e4cc920627740213dad2914": {
     "describe": {
       "columns": [
         {
-          "name": "fish_name",
+          "name": "fish_name!",
           "ordinal": 0,
           "type_info": "Text"
         },
         {
-          "name": "weight",
+          "name": "weight: f32",
           "ordinal": 1,
           "type_info": "Float"
         },
         {
-          "name": "value",
+          "name": "value!: f32",
           "ordinal": 2,
           "type_info": "Float"
         }
@@ -112,7 +142,7 @@
         "Right": 1
       }
     },
-    "query": "\n                    SELECT f.name as fish_name, c.weight, c.value\n                    FROM catches c\n                    INNER JOIN fishes f\n                        ON f.id = c.fish_id\n                    INNER JOIN users u\n                        ON c.user_id = u.id\n                    WHERE u.name = ?\n                    ORDER BY value DESC\n                    LIMIT 1\n                    "
+    "query": "\n                    SELECT f.name as \"fish_name!\", c.weight as \"weight: f32\", c.value as \"value!: f32\"\n                    FROM catches c\n                    INNER JOIN fishes f\n                        ON f.id = c.fish_id\n                    INNER JOIN users u\n                        ON c.user_id = u.id\n                    WHERE u.name = ?\n                    ORDER BY value DESC\n                    LIMIT 1\n                    "
   },
   "f6bb7417e56c3e55c0060e407c26ea765b431e7742e0d2f088c850ba321327a5": {
     "describe": {

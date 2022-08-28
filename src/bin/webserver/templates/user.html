@@ -11,7 +11,11 @@
 		{% if top_catch %}
 		<tr>
 			<td>Most Valuable Catch</td>
-			<td>{{ top_catch.name }} worth
+			<td>{{ top_catch.name }}
+				{% if top_catch.weight -%}
+				at {{ top_catch.weight }}kg
+				{% endif -%}
+				worth
 				{% if top_catch.value > 0 -%}
 				{{ top_catch.value | score }}
 				{% else -%}
