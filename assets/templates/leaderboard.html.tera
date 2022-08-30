@@ -1,11 +1,11 @@
-{% extends "base.html" %}
+{% extends "base" %}
 {% block content %}
 <a href="/">go back</a>
 <div class="wrapper">
 	<h3>Filters</h3>
 	<div class="filter">
-		<a href="/leaderboard?include_bots=false">exclude bots</a>
-		<a href="/leaderboard?include_bots=true">include bots</a>
+		<a href="/leaderboard?filter.include_bots=false">exclude bots</a>
+		<a href="/leaderboard?filter.include_bots=true">include bots</a>
 	</div>
 
 	<h1>Leaderboard</h1>
@@ -20,7 +20,7 @@
 		<tr>
 			<td>{{ loop.index }}</td>
 			<td><a href="/user/{{ user.name }}">{% if user.is_bot %}🤖 {% endif %}{{ user.name }}</a></td>
-			<td>${{ user.score | round(precision=2) }}</td>
+			<td>${{ user.score | round2 }}</td>
 		</tr>
 		{% endfor %}
 	</table>

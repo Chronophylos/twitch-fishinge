@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base" %}
 {% block content %}
 <a href="/">home</a> | <a href="/leaderboard">go back</a>
 <div class="wrapper">
@@ -6,18 +6,18 @@
 	<table>
 		<tr>
 			<td>Total Score</td>
-			<td>${{ total_score | round(precision=2) }}</td>
+			<td>${{ total_score | round2 }}</td>
 		</tr>
 		{% if top_catch %}
 		<tr>
 			<td>Most Valuable Catch</td>
 			<td>{{ top_catch.name }}
 				{% if top_catch.weight -%}
-				at {{ top_catch.weight | round(precision=2) }}kg
+				at {{ top_catch.weight | round2 }}kg
 				{% endif -%}
 				worth
 				{% if top_catch.value > 0 -%}
-				${{ top_catch.value | round(precision=2) }}
+				${{ top_catch.value | round2 }}
 				{% else -%}
 				nothing
 				{% endif %}

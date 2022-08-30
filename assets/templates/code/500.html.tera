@@ -1,0 +1,8 @@
+{% extends "base" %}
+{% block content %}
+<a href="/">home</a>
+<div class="wrapper">
+    <h1>⚠ Internal Server Error ⚠</h1>
+    Something broke internally. Spam <em>@Chronophylos DinkDonk</em> in chat.
+</div>
+{% endblock content %}

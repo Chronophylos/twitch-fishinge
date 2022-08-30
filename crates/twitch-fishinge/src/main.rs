@@ -310,7 +310,7 @@ async fn main() -> eyre::Result<()> {
     pretty_env_logger::init_timed();
     dotenv().ok();
 
-    Ok(run_bot().await?)
+    Ok(run().await?)
 }
 
 #[inline]
@@ -318,7 +318,7 @@ fn env_var(name: &'static str) -> Result<String, Error> {
     env::var(name).map_err(|source| Error::EnvarNotSet { source, name })
 }
 
-async fn run_bot() -> Result<(), Error> {
+async fn run() -> Result<(), Error> {
     let signals = Signals::new(&[SIGTERM, SIGINT, SIGQUIT]).map_err(Error::Signals)?;
     let quit_signal = Arc::new(Notify::new());
 

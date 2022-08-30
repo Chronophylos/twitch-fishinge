@@ -15,12 +15,13 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --target x86_64-unknown-linux-musl --release --recipe-path recipe.json
 # Build application
 COPY . .
-RUN SQLX_OFFLINE=true cargo build --target x86_64-unknown-linux-musl --release --bin webserver
+RUN cargo build --target x86_64-unknown-linux-musl --release --bin fishinge-web
 
 # We do not need the Rust toolchain to run the binary!
 FROM alpine AS runtime
 RUN addgroup -S myuser && adduser -S myuser -G myuser
 USER myuser
 WORKDIR /app
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/webserver /usr/local/bin/
-ENTRYPOINT ["/usr/local/bin/webserver"]
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/fishinge-web /usr/local/bin/
+COPY assets Rocket.toml ./
+ENTRYPOINT ["/usr/local/bin/fishinge-web"]

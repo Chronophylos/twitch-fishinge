@@ -15,7 +15,7 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --target x86_64-unknown-linux-musl --release --recipe-path recipe.json
 # Build application
 COPY . .
-RUN SQLX_OFFLINE=true cargo build --target x86_64-unknown-linux-musl --release --bin twitch-fishinge
+RUN cargo build --target x86_64-unknown-linux-musl --release --bin twitch-fishinge
 
 # We do not need the Rust toolchain to run the binary!
 FROM alpine AS runtime

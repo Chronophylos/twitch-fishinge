@@ -7,9 +7,12 @@ run-web:
 run-bot:
   CHANNELS=chronophylosbot RUST_LOG=debug cargo run --bin twitch-fishinge
 
+run:
+  cargo clippy -- -D warnings
+  docker compose up --build --abort-on-container-exit
+
 docker:
   cargo clippy -- -D warnings
-  cargo sqlx prepare --merged
   docker build -t twitch-fishinge:latest -f twitch-fishinge.Dockerfile docker
-  docker build -t web-fishinge:latest -f web-fishinge.Dockerfile docker
-  docker save -o twitch-micro-bots.tar twitch-fishinge web-fishinge
+  docker build -t fishinge-web:latest -f fishinge-web.Dockerfile docker
+  docker save -o twitch-micro-bots.tar twitch-fishinge fishinge-web
