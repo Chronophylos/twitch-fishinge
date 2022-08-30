@@ -2,7 +2,7 @@ check:
   cargo clippy
   
 run-web:
-  RUST_LOG=debug cargo run --bin web-fishinge
+  RUST_LOG=debug cargo run --bin fishinge-web
   
 run-bot:
   CHANNELS=chronophylosbot RUST_LOG=debug cargo run --bin fishinge-bot

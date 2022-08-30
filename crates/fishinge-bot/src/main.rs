@@ -44,9 +44,6 @@ use twitch_irc::{
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
-    #[error("Could not use settings")]
-    Settings(#[from] settings::Error),
-
     #[error("Could not validate channel name")]
     ValidateChannelName(#[from] twitch_irc::validate::Error),
 
