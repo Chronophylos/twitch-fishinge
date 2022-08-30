@@ -7,3 +7,4 @@ fish.db
 *.db-wal
 .ipynb_checkpoints
 docker-compose.yaml
+fishes.sql

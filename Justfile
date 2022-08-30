@@ -5,7 +5,7 @@ run-web:
   RUST_LOG=debug cargo run --bin web-fishinge
   
 run-bot:
-  RUST_LOG=debug cargo run --bin twitch-fishinge
+  CHANNELS=chronophylosbot RUST_LOG=debug cargo run --bin twitch-fishinge
 
 docker:
   cargo clippy -- -D warnings

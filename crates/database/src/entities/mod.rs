@@ -2,6 +2,7 @@
 
 pub mod prelude;
 
+pub mod accounts;
 pub mod catches;
 pub mod fishes;
 pub mod messages;

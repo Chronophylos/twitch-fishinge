@@ -1,9 +1,9 @@
 use database::{
     connection,
     entities::{catches, prelude::*, users},
+    migrate,
 };
 use dotenvy::dotenv;
-use eyre::WrapErr;
 use futures_lite::future::block_on;
 use log::{debug, error};
 use once_cell::sync::Lazy;
@@ -75,7 +75,7 @@ async fn leaderboard(
         Score,
     }
 
-    debug!("Quering leaderboard");
+    debug!("Querying leaderboard");
     let users = Catches::find()
         .column_as(catches::Column::Value.sum(), QueryAs::Score)
         .join(JoinType::InnerJoin, catches::Relation::Users.def())
@@ -111,7 +111,7 @@ async fn fishes(db: &DatabaseConnection) -> Result<Html<String>, Error> {
         is_trash: bool,
     }
 
-    debug!("Quering fishes");
+    debug!("Querying fishes");
     let fishes = Fishes::find().all(db).await?;
 
     let population: i32 = fishes.iter().map(|fish| fish.count).sum();
@@ -162,7 +162,7 @@ async fn user(db: &DatabaseConnection, username: String) -> Result<Response<Body
         value: f64,
     }
 
-    debug!("Quering top catch");
+    debug!("Querying top catch");
     let top_catch = Catches::find()
         .filter(catches::Column::UserId.eq(user.id))
         .order_by_desc(catches::Column::Value)
@@ -230,13 +230,14 @@ macro_rules! assets {
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     pretty_env_logger::init_timed();
-    dotenv().wrap_err("Error loading .env file")?;
+    dotenv().ok();
 
     Ok(main_().await?)
 }
 
 async fn main_() -> Result<(), Error> {
     let db = connection().await?;
+    migrate(&db).await?;
 
     // GET /
     let root = warp::path::end().map(|| match index() {
@@ -254,7 +255,7 @@ async fn main_() -> Result<(), Error> {
     let leaderboard_route = warp::path("leaderboard")
         .and(warp::query::<LeaderboardQuery>())
         .map({
-            let db = db.clone();
+            let db = (&db).clone();
             move |query: LeaderboardQuery| match block_on(leaderboard(&db, query)) {
                 Ok(html) => Box::new(html) as Box<dyn Reply>,
                 Err(err) => {
@@ -269,7 +270,7 @@ async fn main_() -> Result<(), Error> {
 
     // GET /fishes
     let fishes_route = warp::path("fishes").map({
-        let db = db.clone();
+        let db = (&db).clone();
         move || match block_on(fishes(&db)) {
             Ok(html) => Box::new(html) as Box<dyn Reply>,
             Err(err) => {
@@ -284,7 +285,7 @@ async fn main_() -> Result<(), Error> {
 
     // GET /user/:USERNAME
     let user_route = warp::path!("user" / String).map({
-        let db = db.clone();
+        let db = (&db).clone();
         move |username| match block_on(user(&db, username)) {
             Ok(html) => Box::new(html) as Box<dyn Reply>,
             Err(err) => {

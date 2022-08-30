@@ -3,11 +3,11 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 pub mod entities;
 
-use std::env;
+use std::{env, time::Duration};
 
 use log::debug;
 use migration::{Migrator, MigratorTrait};
-use sea_orm::{Database, DatabaseConnection};
+use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 
 const DATABASE_URL: &str = "mysql://postgres:postgres@localhost:3306";
 
@@ -24,14 +24,21 @@ pub enum Error {
 pub async fn connection() -> Result<DatabaseConnection, Error> {
     debug!("Opening database connection");
 
-    let db = Database::connect(env::var("DATABASE_URL").as_deref().unwrap_or(DATABASE_URL))
-        .await
-        .map_err(Error::Connect)?;
+    let mut opt = ConnectOptions::new(
+        env::var("DATABASE_URL")
+            .as_deref()
+            .unwrap_or(DATABASE_URL)
+            .to_owned(),
+    );
+    opt.connect_timeout(Duration::from_secs(5))
+        .sqlx_logging_level(log::LevelFilter::Debug);
+
+    let db = Database::connect(opt).await.map_err(Error::Connect)?;
 
     Ok(db)
 }
 
 pub async fn migrate(db: &DatabaseConnection) -> Result<(), Error> {
-    Migrator::refresh(db).await.map_err(Error::Migrate)?;
+    Migrator::up(db, None).await.map_err(Error::Migrate)?;
     Ok(())
 }

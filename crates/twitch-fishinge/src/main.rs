@@ -1,37 +1,46 @@
 #![forbid(unsafe_code)]
 
-mod config;
-
 use std::{
-    collections::HashSet, env, fmt::Display, ops::Range, sync::RwLock,
+    collections::HashSet,
+    env,
+    fmt::Display,
+    ops::Range,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock,
+    },
     time::Duration as StdDuration,
 };
 
+use async_trait::async_trait;
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use database::{
     connection,
-    entities::{catches, fishes, messages, prelude::*, sea_orm_active_enums::MessageType, users},
+    entities::{
+        accounts, catches, fishes, messages, prelude::*, sea_orm_active_enums::MessageType, users,
+    },
     migrate,
 };
 use dotenvy::dotenv;
 use eyre::WrapErr;
+use futures::stream::StreamExt;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
 use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, Rng, SeedableRng};
 use regex::Regex;
 use sea_orm::{
     sea_query::OnConflict, ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection,
-    DeriveColumn, EntityTrait, EnumIter, IdenStatic, QueryFilter, QueryOrder,
+    DeriveColumn, EntityTrait, EnumIter, FromQueryResult, IdenStatic, QueryFilter, QueryOrder,
+    QuerySelect,
 };
+use signal_hook::consts::*;
+use signal_hook_tokio::Signals;
+use tokio::{select, sync::Notify};
 use twitch_irc::{
-    login::RefreshingLoginCredentials,
+    login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken},
     message::{PrivmsgMessage, ServerMessage},
-    SecureTCPTransport, TwitchIRCClient,
+    ClientConfig, SecureTCPTransport, TwitchIRCClient,
 };
-
-use crate::config::Config;
-
-type Client = TwitchIRCClient<SecureTCPTransport, RefreshingLoginCredentials<Config>>;
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
@@ -49,16 +58,33 @@ enum Error {
 
     #[error("Could not reply to message")]
     ReplyToMessage(
-        #[from] twitch_irc::Error<SecureTCPTransport, RefreshingLoginCredentials<Config>>,
+        #[from] twitch_irc::Error<SecureTCPTransport, RefreshingLoginCredentials<Account>>,
     ),
 
     #[error("No fishes found in database")]
     NoFishesInDatabase,
+
+    #[error("No cooldown messages found in database")]
+    NoCooldownMessages,
+
+    #[error("Account `{0}` not found in database")]
+    AccountNotFound(String),
+
+    #[error("Could not join thread")]
+    JoinThread(#[from] tokio::task::JoinError),
+
+    #[error("Environent variable {name} not set")]
+    EnvarNotSet {
+        source: std::env::VarError,
+        name: &'static str,
+    },
+
+    #[error("Signal hooking error")]
+    Signals(#[source] std::io::Error),
 }
 
 static FISH_POPULATION: RwLock<i32> = RwLock::new(0);
-
-static COOLDOWN: Lazy<Duration> = Lazy::new(|| Duration::hours(6));
+static COOLDOWN: Lazy<Duration> = Lazy::new(|| Duration::hours(4));
 
 #[derive(Debug, Clone)]
 struct Fish {
@@ -194,57 +220,158 @@ impl Display for Catch {
     }
 }
 
+#[derive(Debug)]
+struct Account {
+    id: i32,
+    db: DatabaseConnection,
+}
+
+impl Account {
+    pub async fn new(db: DatabaseConnection, username: &str) -> Result<Self, Error> {
+        #[derive(FromQueryResult)]
+        struct AccountId {
+            id: i32,
+        }
+
+        let id = Accounts::find()
+            .filter(accounts::Column::Username.eq(username))
+            .select_only()
+            .column(accounts::Column::Id)
+            .into_model::<AccountId>()
+            .one(&db)
+            .await?
+            .ok_or_else(|| Error::AccountNotFound(username.to_string()))?
+            .id;
+
+        Ok(Self { id, db })
+    }
+}
+
+#[async_trait]
+impl TokenStorage for Account {
+    type LoadError = eyre::Error;
+    type UpdateError = eyre::Error;
+
+    async fn load_token(&mut self) -> Result<UserAccessToken, Self::LoadError> {
+        let account = Accounts::find_by_id(self.id)
+            .one(&self.db)
+            .await
+            .wrap_err("Could not query account")?
+            .ok_or_else(|| eyre::eyre!("Account not found"))?;
+
+        Ok(UserAccessToken {
+            access_token: account.access_token,
+            refresh_token: account.refresh_token,
+            created_at: account.created_at.into(),
+            expires_at: account.expires_at.map(Into::into),
+        })
+    }
+
+    async fn update_token(&mut self, token: &UserAccessToken) -> Result<(), Self::UpdateError> {
+        let account = accounts::ActiveModel {
+            id: ActiveValue::unchanged(self.id),
+            access_token: ActiveValue::set(token.access_token.clone()),
+            refresh_token: ActiveValue::set(token.refresh_token.clone()),
+            created_at: ActiveValue::set(token.created_at.into()),
+            expires_at: ActiveValue::set(token.expires_at.map(Into::into)),
+            ..Default::default()
+        };
+
+        account
+            .update(&self.db)
+            .await
+            .wrap_err("Could not update account")?;
+
+        Ok(())
+    }
+}
+
+type Client = TwitchIRCClient<SecureTCPTransport, RefreshingLoginCredentials<Account>>;
+
+static QUITTING: AtomicBool = AtomicBool::new(false);
+
+async fn handle_signals(mut signals: Signals, quit_signal: Arc<Notify>) {
+    info!("Starting signal handler");
+    while let Some(signal) = signals.next().await {
+        match signal {
+            SIGTERM | SIGINT | SIGQUIT => {
+                // Shutdown the system
+                QUITTING.store(true, Ordering::Relaxed);
+                quit_signal.notify_waiters();
+                break;
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     pretty_env_logger::init_timed();
-    dotenv().wrap_err("Error loading .env file")?;
+    dotenv().ok();
 
-    Ok(main_().await?)
+    Ok(run_bot().await?)
 }
 
-async fn main_() -> Result<(), Error> {
+#[inline]
+fn env_var(name: &'static str) -> Result<String, Error> {
+    env::var(name).map_err(|source| Error::EnvarNotSet { source, name })
+}
+
+async fn run_bot() -> Result<(), Error> {
+    let signals = Signals::new(&[SIGTERM, SIGINT, SIGQUIT]).map_err(Error::Signals)?;
+    let quit_signal = Arc::new(Notify::new());
+
     let db = connection().await?;
 
     info!("Running Migrations");
     migrate(&db).await?;
 
-    let settings = Config::load()?;
-    let config = settings.client_config();
+    let username = env_var("USERNAME")?;
+    let client_id = env_var("CLIENT_ID")?;
+    let client_secret = env_var("CLIENT_SECRET")?;
+    let account = Account::new((&db).clone(), &username).await?;
+    let credentials = RefreshingLoginCredentials::init_with_username(
+        Some(username),
+        client_id,
+        client_secret,
+        account,
+    );
+    let config = ClientConfig::new_simple(credentials);
 
     info!("Creating client");
     let (mut incoming_messages, client) = Client::new(config);
 
+    let handle = signals.handle();
+    let signals_task = tokio::spawn(handle_signals(signals, quit_signal.clone()));
+
     // consume the incoming messages stream
-    let twitch_handle = tokio::spawn({
+    let twitch_task = tokio::spawn({
         let client = client.clone();
 
         async move {
-            while let Some(message) = incoming_messages.recv().await {
-                trace!("Received message: {:?}", &message);
-                match message {
-                    ServerMessage::Privmsg(msg) => {
-                        if let Err(err) = handle_privmsg(&db, &client, &msg).await {
-                            error!("Error handling privmsg: {:#?}", err);
+            while !QUITTING.load(Ordering::Relaxed) {
+                select! {
+                    maybe_message = incoming_messages.recv() => {
+                        if let Some(message) = maybe_message {
+                            if let Err(err)=handle_server_message(&db, &client, message).await {
+                                error!("Error handling message: {err}");
+                            }
+
+                        } else {
+                            break;
                         }
                     }
-                    ServerMessage::Notice(msg) => {
-                        warn!(
-                            "Notice: {} {}",
-                            msg.channel_login.unwrap_or_else(|| "Server".to_string()),
-                            msg.message_text
-                        );
+                    _ = quit_signal.notified() => {
+                        debug!("Received quitting twitch task");
+                        break;
                     }
-                    ServerMessage::Reconnect(_) => {
-                        info!("Twitch Server requested a reconnect");
-                    }
-                    _ => {}
                 }
             }
         }
     });
 
-    let wanted_channels = env::var("CHANNELS")
-        .unwrap_or_else(|_| "".to_string())
+    let wanted_channels = env_var("CHANNELS")?
         .split(',')
         .map(|channel| channel.trim().to_string())
         .collect::<HashSet<_>>();
@@ -262,8 +389,38 @@ async fn main_() -> Result<(), Error> {
 
     // keep the tokio executor alive.
     // If you return instead of waiting the background task will exit.
-    twitch_handle.await.unwrap();
+    twitch_task.await?;
 
+    // Terminate the signal stream.
+    handle.close();
+    signals_task.await?;
+
+    Ok(())
+}
+
+async fn handle_server_message(
+    db: &DatabaseConnection,
+    client: &Client,
+    message: ServerMessage,
+) -> Result<(), Error> {
+    trace!("Received message: {:?}", &message);
+
+    match message {
+        ServerMessage::Privmsg(msg) => {
+            handle_privmsg(db, client, &msg).await?;
+        }
+        ServerMessage::Notice(msg) => {
+            warn!(
+                "Notice: {} {}",
+                msg.channel_login.unwrap_or_else(|| "Server".to_string()),
+                msg.message_text
+            );
+        }
+        ServerMessage::Reconnect(_) => {
+            info!("Twitch Server requested a reconnect");
+        }
+        _ => {}
+    }
     Ok(())
 }
 
@@ -449,10 +606,17 @@ async fn handle_fishinge(
                 .all(db)
                 .await?;
 
-            let message = messages.choose(&mut biased_rng).unwrap();
+            if messages.is_empty() {
+                return Err(Error::NoCooldownMessages);
+            }
+
+            let message = messages
+                .choose(&mut biased_rng)
+                .unwrap()
+                .replace("{cooldown}", &cooldown.to_string());
 
             client
-                .say_in_reply_to(msg, format!("{} Try again in {cooldown}.", message))
+                .say_in_reply_to(msg, message)
                 .await
                 .map_err(Error::ReplyToMessage)?;
 
@@ -469,6 +633,7 @@ async fn handle_fishinge(
         let user = users::ActiveModel {
             name: ActiveValue::set(msg.sender.login.to_lowercase()),
             last_fished: ActiveValue::set(now),
+            is_bot: ActiveValue::set(false),
             ..Default::default()
         };
         user.insert(db).await?
