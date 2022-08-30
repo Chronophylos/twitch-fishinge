@@ -1,18 +1,23 @@
+use std::sync::Arc;
+
 use database::{
     connection,
     entities::{catches, prelude::*, users},
     migrate,
 };
 use dotenvy::dotenv;
-use futures_lite::future::block_on;
-use log::{debug, error};
+use futures_lite::{future::block_on, StreamExt};
+use log::{debug, error, info};
 use once_cell::sync::Lazy;
 use sea_orm::{
     sea_query::Expr, ColumnTrait, DatabaseConnection, DeriveColumn, EntityTrait, EnumIter,
     FromQueryResult, IdenStatic, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
 };
 use serde::{Deserialize, Serialize};
+use signal_hook::consts::*;
+use signal_hook_tokio::Signals;
 use tera::{Context, Tera};
+use tokio::{select, sync::Notify};
 use warp::{
     hyper::{Body, Response, StatusCode},
     reply::Html,
@@ -32,6 +37,12 @@ enum Error {
 
     #[error("Could not build response")]
     BuildResponse(#[from] warp::http::Error),
+
+    #[error("Signal hooking error")]
+    Signals(#[source] std::io::Error),
+
+    #[error("Could not join thread")]
+    JoinThread(#[from] tokio::task::JoinError),
 }
 
 static TEMPLATES: Lazy<Tera> = Lazy::new(|| {
@@ -227,6 +238,20 @@ macro_rules! assets {
     };
 }
 
+async fn handle_signals(mut signals: Signals, quit_signal: Arc<Notify>) {
+    info!("Starting signal handler");
+    while let Some(signal) = signals.next().await {
+        match signal {
+            SIGTERM | SIGINT | SIGQUIT => {
+                // Shutdown the system
+                quit_signal.notify_waiters();
+                break;
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     pretty_env_logger::init_timed();
@@ -236,6 +261,9 @@ async fn main() -> eyre::Result<()> {
 }
 
 async fn main_() -> Result<(), Error> {
+    let signals = Signals::new(&[SIGTERM, SIGINT, SIGQUIT]).map_err(Error::Signals)?;
+    let quit_signal = Arc::new(Notify::new());
+
     let db = connection().await?;
     migrate(&db).await?;
 
@@ -319,7 +347,17 @@ async fn main_() -> Result<(), Error> {
         .and(root.or(leaderboard_route).or(fishes_route).or(user_route))
         .or(assets_route);
 
-    warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;
+    let handle = signals.handle();
+    let signals_task = tokio::spawn(handle_signals(signals, quit_signal.clone()));
+
+    select! {
+        _ = warp::serve(routes).run(([0, 0, 0, 0], 3030)) => { }
+        _ = quit_signal.notified() =>  {}
+    };
+
+    // Terminate the signal stream.
+    handle.close();
+    signals_task.await?;
 
     Ok(())
 }

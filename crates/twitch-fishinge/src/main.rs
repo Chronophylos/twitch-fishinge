@@ -23,7 +23,7 @@ use database::{
 };
 use dotenvy::dotenv;
 use eyre::WrapErr;
-use futures::stream::StreamExt;
+use futures_lite::stream::StreamExt;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
 use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, Rng, SeedableRng};

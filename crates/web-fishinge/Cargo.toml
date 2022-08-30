@@ -25,6 +25,8 @@ twitch-irc = { version = "4.0.0", default-features = false, features = ["transpo
 url = "2.2.2"
 warp = "0.3.2"
 serde = { version = "1.0.144", features = ["derive"] }
+signal-hook = "0.3.14"
+signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
 
 [dev-dependencies]
 approx = "0.5.1"
