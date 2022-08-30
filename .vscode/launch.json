@@ -7,15 +7,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'twitch-fishinge'",
+            "name": "Debug executable 'fishinge-bot'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=twitch-fishinge",
-                    "--package=twitch-fishinge"
+                    "--bin=fishinge-bot",
+                    "--package=fishinge-bot"
                 ],
                 "filter": {
-                    "name": "twitch-fishinge",
+                    "name": "fishinge-bot",
                     "kind": "bin"
                 }
             },
@@ -29,16 +29,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'twitch-fishinge'",
+            "name": "Debug unit tests in executable 'fishinge-bot'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=twitch-fishinge",
-                    "--package=twitch-fishinge"
+                    "--bin=fishinge-bot",
+                    "--package=fishinge-bot"
                 ],
                 "filter": {
-                    "name": "twitch-fishinge",
+                    "name": "fishinge-bot",
                     "kind": "bin"
                 }
             },

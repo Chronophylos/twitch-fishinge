@@ -4,7 +4,7 @@ target
 settings.ron
 fish.db
 Justfile
-twitch-fishinge.tar
+fishinge-bot.tar
 .env
 Dockerfile.*
 docker-compose.yaml

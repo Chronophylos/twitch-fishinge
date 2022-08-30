@@ -827,6 +827,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "fishinge-bot"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "async-trait",
+ "chrono",
+ "database",
+ "directories",
+ "dotenvy",
+ "eyre",
+ "futures-lite",
+ "humantime 2.1.0",
+ "log",
+ "once_cell",
+ "phf",
+ "pretty_env_logger",
+ "rand",
+ "regex",
+ "reqwest",
+ "ron",
+ "sea-orm",
+ "secrecy",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "settings",
+ "signal-hook",
+ "signal-hook-tokio",
+ "tera",
+ "test-case",
+ "thiserror",
+ "tokio",
+ "twitch-irc",
+ "url",
+ "warp",
+]
+
+[[package]]
 name = "fishinge-web"
 version = "0.1.0"
 dependencies = [
@@ -3534,44 +3572,6 @@ dependencies = [
  "thiserror",
  "url",
  "utf-8",
-]
-
-[[package]]
-name = "twitch-fishinge"
-version = "0.1.0"
-dependencies = [
- "approx",
- "async-trait",
- "chrono",
- "database",
- "directories",
- "dotenvy",
- "eyre",
- "futures-lite",
- "humantime 2.1.0",
- "log",
- "once_cell",
- "phf",
- "pretty_env_logger",
- "rand",
- "regex",
- "reqwest",
- "ron",
- "sea-orm",
- "secrecy",
- "serde",
- "serde_derive",
- "serde_json",
- "settings",
- "signal-hook",
- "signal-hook-tokio",
- "tera",
- "test-case",
- "thiserror",
- "tokio",
- "twitch-irc",
- "url",
- "warp",
 ]
 
 [[package]]

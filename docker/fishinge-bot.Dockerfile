@@ -15,12 +15,12 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --target x86_64-unknown-linux-musl --release --recipe-path recipe.json
 # Build application
 COPY . .
-RUN cargo build --target x86_64-unknown-linux-musl --release --bin twitch-fishinge
+RUN cargo build --target x86_64-unknown-linux-musl --release --bin fishinge-bot
 
 # We do not need the Rust toolchain to run the binary!
 FROM alpine AS runtime
 RUN addgroup -S myuser && adduser -S myuser -G myuser
 USER myuser
 WORKDIR /app
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/twitch-fishinge /usr/local/bin/
-ENTRYPOINT ["/usr/local/bin/twitch-fishinge"]
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/fishinge-bot /usr/local/bin/
+ENTRYPOINT ["/usr/local/bin/fishinge-bot"]
