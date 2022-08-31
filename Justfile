@@ -13,6 +13,6 @@ run:
 
 docker:
   cargo clippy -- -D warnings
-  docker build -t fishinge-bot:latest -f fishinge-bot.Dockerfile docker
-  docker build -t fishinge-web:latest -f fishinge-web.Dockerfile docker
+  docker build -t fishinge-bot:latest -f docker/fishinge-bot.Dockerfile .
+  docker build -t fishinge-web:latest -f docker/fishinge-web.Dockerfile .
   docker save -o twitch-micro-bots.tar fishinge-bot fishinge-web
