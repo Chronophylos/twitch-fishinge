@@ -132,13 +132,14 @@ async fn leaderboard(conn: Connection<Db>, filter: LeaderboardFilter) -> Result<
     let mut query = Catches::find()
         .join(JoinType::InnerJoin, catches::Relation::Users.def())
         .group_by(users::Column::Id)
+        .order_by_desc(catches::Column::Value.sum())
         .select_only()
         .column_as(catches::Column::Value.sum(), QueryAs::Score)
         .column(users::Column::Id)
         .column(users::Column::Name)
         .column(users::Column::IsBot);
     sea_orm::QuerySelect::query(&mut query).conditions(
-        filter.include_bots,
+        !filter.include_bots,
         |q| {
             q.and_where(users::Column::IsBot.eq(false));
         },
@@ -149,7 +150,7 @@ async fn leaderboard(conn: Connection<Db>, filter: LeaderboardFilter) -> Result<
     let users = match query.into_model::<UserWithScore>().all(&*conn).await {
         Ok(users) => users
             .into_iter()
-            .filter(|u| u.score > f32::EPSILON)
+            .filter(|u| u.score.abs() > f32::EPSILON)
             .collect::<Vec<_>>(),
         Err(err) => {
             error!("Error querying leaderboard: {err}");
@@ -251,6 +252,7 @@ async fn user(conn: Connection<Db>, username: String) -> Result<Template, Status
     }
 
     let total_score: Option<f32> = match Catches::find()
+        .filter(catches::Column::UserId.eq(user.id))
         .select_only()
         .column_as(catches::Column::Value.sum(), "score")
         .into_values::<_, QueryAs>()

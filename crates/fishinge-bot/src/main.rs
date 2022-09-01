@@ -22,7 +22,7 @@ use database::{
     migrate,
 };
 use dotenvy::dotenv;
-use eyre::WrapErr;
+use eyre::{eyre, Result, WrapErr};
 use futures_lite::stream::StreamExt;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
@@ -57,15 +57,6 @@ enum Error {
     ReplyToMessage(
         #[from] twitch_irc::Error<SecureTCPTransport, RefreshingLoginCredentials<Account>>,
     ),
-
-    #[error("No fishes found in database")]
-    NoFishesInDatabase,
-
-    #[error("No cooldown messages found in database")]
-    NoCooldownMessages,
-
-    #[error("Account `{0}` not found in database")]
-    AccountNotFound(String),
 
     #[error("Could not join thread")]
     JoinThread(#[from] tokio::task::JoinError),
@@ -207,10 +198,10 @@ impl Display for Catch {
         if let Some(weight) = self.weight {
             write!(f, " ({:.1}kg)", weight)?;
         }
-        if self.value < f32::EPSILON {
-            write!(f, " worth nothing")?;
-        } else {
+        if self.value > f32::EPSILON {
             write!(f, " worth ${:.2}", self.value)?;
+        } else {
+            write!(f, " worth nothing")?;
         }
 
         Ok(())
@@ -224,7 +215,7 @@ struct Account {
 }
 
 impl Account {
-    pub async fn new(db: DatabaseConnection, username: &str) -> Result<Self, Error> {
+    pub async fn new(db: DatabaseConnection, username: &str) -> Result<Self> {
         #[derive(FromQueryResult)]
         struct AccountId {
             id: i32,
@@ -237,7 +228,7 @@ impl Account {
             .into_model::<AccountId>()
             .one(&db)
             .await?
-            .ok_or_else(|| Error::AccountNotFound(username.to_string()))?
+            .ok_or_else(|| eyre!("account `{username}` not found in database"))?
             .id;
 
         Ok(Self { id, db })
@@ -303,11 +294,11 @@ async fn handle_signals(mut signals: Signals, quit_signal: Arc<Notify>) {
 }
 
 #[tokio::main]
-async fn main() -> eyre::Result<()> {
+async fn main() -> Result<()> {
     pretty_env_logger::init_timed();
     dotenv().ok();
 
-    Ok(run().await?)
+    run().await.wrap_err("failed to run bot")
 }
 
 #[inline]
@@ -315,7 +306,7 @@ fn env_var(name: &'static str) -> Result<String, Error> {
     env::var(name).map_err(|source| Error::EnvarNotSet { source, name })
 }
 
-async fn run() -> Result<(), Error> {
+async fn run() -> Result<()> {
     let signals = Signals::new(&[SIGTERM, SIGINT, SIGQUIT]).map_err(Error::Signals)?;
     let quit_signal = Arc::new(Notify::new());
 
@@ -399,7 +390,7 @@ async fn handle_server_message(
     db: &DatabaseConnection,
     client: &Client,
     message: ServerMessage,
-) -> Result<(), Error> {
+) -> Result<()> {
     trace!("Received message: {:?}", &message);
 
     match message {
@@ -439,7 +430,7 @@ async fn handle_privmsg(
     db: &DatabaseConnection,
     client: &Client,
     msg: &PrivmsgMessage,
-) -> Result<(), Error> {
+) -> Result<()> {
     if msg.message_text.starts_with("!bot") {
         client
             .say_in_reply_to(
@@ -560,6 +551,36 @@ async fn handle_privmsg(
 
                 Ok(())
             }
+            Some("💰") => {
+                #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
+                enum QueryAs {
+                    Score,
+                }
+
+                let query: Option<f32> = Catches::find()
+                    .inner_join(Users)
+                    .filter(users::Column::Name.eq(msg.sender.login.to_lowercase()))
+                    .select_only()
+                    .column_as(catches::Column::Value.sum(), "score")
+                    .into_values::<_, QueryAs>()
+                    .one(db)
+                    .await?
+                    .flatten();
+
+                if let Some(score) = query {
+                    client
+                        .say_in_reply_to(msg, format!("your current score is ${score:.2}"))
+                        .await
+                        .map_err(Error::ReplyToMessage)?;
+                } else {
+                    client
+                        .say_in_reply_to(msg, "you did not catch any fish yet".to_string())
+                        .await
+                        .map_err(Error::ReplyToMessage)?;
+                };
+
+                Ok(())
+            }
             None => handle_fishinge(db, client, msg).await,
             _ => Ok(()),
         }
@@ -572,7 +593,7 @@ async fn handle_fishinge(
     db: &DatabaseConnection,
     client: &Client,
     msg: &PrivmsgMessage,
-) -> Result<(), Error> {
+) -> Result<()> {
     let now = Utc::now().into();
     // TODO: remove unwrap
     let mut rng = StdRng::from_rng(thread_rng()).unwrap();
@@ -604,7 +625,7 @@ async fn handle_fishinge(
                 .await?;
 
             if messages.is_empty() {
-                return Err(Error::NoCooldownMessages);
+                return Err(eyre!("no cooldown messages found in database"));
             }
 
             let message = messages
@@ -639,7 +660,7 @@ async fn handle_fishinge(
     let fishes = get_fishes(db).await?;
 
     if fishes.is_empty() {
-        return Err(Error::NoFishesInDatabase);
+        return Err(eyre!("no fishes found in database"));
     }
 
     let fish = fishes.choose_weighted(&mut rng, |fish| fish.count).unwrap();
@@ -663,8 +684,7 @@ async fn handle_fishinge(
 
     client
         .say_in_reply_to(msg, format!("caught a {catch}!"))
-        .await
-        .map_err(Error::ReplyToMessage)?;
+        .await?;
 
     Ok(())
 }
