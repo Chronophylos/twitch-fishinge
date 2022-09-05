@@ -154,51 +154,13 @@ impl Catch {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use approx::assert_ulps_eq;
-    use test_case::test_case;
-
-    use super::*;
-
-    #[test_case(Some(0.0..1.0), 100, 0.0, 89.940796 ; "range 0.0 to 1.0 with base value 100 and weight 0.0")]
-    #[test_case(Some(0.0..1.0), 100, 0.5, 107.299995 ; "range 0.0 to 1.0 with base value 100 and weight 0.5")]
-    #[test_case(Some(0.0..1.0), 100, 1.0, 180.1472 ; "range 0.0 to 1.0 with base value 100 and weight 1.0")]
-    #[test_case(Some(0.0..1.0), 100, 1.1, 217.97722 ; "range 0.0 to 1.0 with base value 100 and over weight 1.1")]
-    #[test_case(Some(0.0..1.0), -100, 0.0, -89.940796 ; "range 0.0 to 1.0 with negative base value -100 and weight 0.0")]
-    #[test_case(Some(0.0..1.0), -100, 0.5, -107.299995 ; "range 0.0 to 1.0 with negative base value -100 and weight 0.5")]
-    #[test_case(Some(0.0..1.0), -100, 1.0, -180.1472 ; "range 0.0 to 1.0 with negative base value -100 and weight 1.0")]
-    #[test_case(Some(5.3..12.6), 123, 5.3, 110.62718 ; "range 5.3 to 12.6 with base value 123 and weight 5.3")]
-    #[test_case(Some(5.3..12.6), 123, 8.95, 131.97899 ; "range 5.3 to 12.6 with base value 123 and weight 8.95")]
-    #[test_case(Some(5.3..12.6), 123, 12.6, 221.58107 ; "range 5.3 to 12.6 with base value 123 and weight 12.6")]
-    #[test_case(Some(88000.0..130000.0), 800, 91961.3 , 781.4889 ; "range 88000.0 to 130000.0 with base value 800 and weight 91961.3")]
-    #[test_case(None, -50, 0.0, -50.0 ; "without range with base value -50 and weight 0.0")]
-    #[test_case(None, -50, 100.0, -50.0 ; "without range with base value -50 and weight 100.0")]
-    fn catch_value(
-        weight_range: Option<Range<f32>>,
-        base_value: i32,
-        weight: f32,
-        expected_value: f32,
-    ) {
-        let fish = Fish {
-            id: 0,
-            name: String::new(),
-            count: 0,
-            base_value,
-            weight_range,
-        };
-        let catch = Catch::new(&fish, Some(weight));
-        assert_ulps_eq!(catch.value, expected_value, max_ulps = 4);
-    }
-}
-
 impl Display for Catch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.fish_name)?;
         if let Some(weight) = self.weight {
             write!(f, " ({:.1}kg)", weight)?;
         }
-        if self.value > f32::EPSILON {
+        if self.value.abs() > f32::EPSILON {
             write!(f, " worth ${:.2}", self.value)?;
         } else {
             write!(f, " worth nothing")?;
@@ -687,4 +649,52 @@ async fn handle_fishinge(
         .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use approx::assert_ulps_eq;
+    use test_case::test_case;
+
+    use super::*;
+
+    #[test_case(Some(0.0..1.0), 100, 0.0, 89.940796 ; "range 0.0 to 1.0 with base value 100 and weight 0.0")]
+    #[test_case(Some(0.0..1.0), 100, 0.5, 107.299995 ; "range 0.0 to 1.0 with base value 100 and weight 0.5")]
+    #[test_case(Some(0.0..1.0), 100, 1.0, 180.1472 ; "range 0.0 to 1.0 with base value 100 and weight 1.0")]
+    #[test_case(Some(0.0..1.0), 100, 1.1, 217.97722 ; "range 0.0 to 1.0 with base value 100 and over weight 1.1")]
+    #[test_case(Some(0.0..1.0), -100, 0.0, -89.940796 ; "range 0.0 to 1.0 with negative base value -100 and weight 0.0")]
+    #[test_case(Some(0.0..1.0), -100, 0.5, -107.299995 ; "range 0.0 to 1.0 with negative base value -100 and weight 0.5")]
+    #[test_case(Some(0.0..1.0), -100, 1.0, -180.1472 ; "range 0.0 to 1.0 with negative base value -100 and weight 1.0")]
+    #[test_case(Some(5.3..12.6), 123, 5.3, 110.62718 ; "range 5.3 to 12.6 with base value 123 and weight 5.3")]
+    #[test_case(Some(5.3..12.6), 123, 8.95, 131.97899 ; "range 5.3 to 12.6 with base value 123 and weight 8.95")]
+    #[test_case(Some(5.3..12.6), 123, 12.6, 221.58107 ; "range 5.3 to 12.6 with base value 123 and weight 12.6")]
+    #[test_case(Some(88000.0..130000.0), 800, 91961.3 , 781.4889 ; "range 88000.0 to 130000.0 with base value 800 and weight 91961.3")]
+    #[test_case(None, -50, 0.0, -50.0 ; "without range with base value -50 and weight 0.0")]
+    #[test_case(None, -50, 100.0, -50.0 ; "without range with base value -50 and weight 100.0")]
+    fn catch_value(
+        weight_range: Option<Range<f32>>,
+        base_value: i32,
+        weight: f32,
+        expected_value: f32,
+    ) {
+        let fish = Fish {
+            id: 0,
+            name: String::new(),
+            count: 0,
+            base_value,
+            weight_range,
+        };
+        let catch = Catch::new(&fish, Some(weight));
+        assert_ulps_eq!(catch.value, expected_value, max_ulps = 4);
+    }
+
+    #[test_case(Catch{ fish_name: "fish".to_string(), weight: None, value: 0.0 }, "fish worth nothing" ; "without weight worth nothing")]
+    #[test_case(Catch{ fish_name: "fish".to_string(), weight: None, value: -50.0 }, "fish worth $-50.00" ; "without weight with negative worth")]
+    #[test_case(Catch{ fish_name: "fish".to_string(), weight: None, value: 50.0 }, "fish worth $50.00" ; "without weight with positive worth")]
+    #[test_case(Catch{ fish_name: "fish".to_string(), weight: Some(1.23), value: 0.0 }, "fish (1.2kg) worth nothing" ; "with weight worth nothing")]
+    #[test_case(Catch{ fish_name: "fish".to_string(), weight: Some(1.23), value: -50.0 }, "fish (1.2kg) worth $-50.00" ; "with weight with negative worth")]
+    #[test_case(Catch{ fish_name: "fish".to_string(), weight: Some(1.23), value: 50.0 }, "fish (1.2kg) worth $50.00" ; "with weight with positive worth")]
+    fn catch_format(catch: Catch, expected: &str) {
+        assert_eq!(catch.to_string(), expected);
+    }
 }
