@@ -3,7 +3,8 @@
 
 <div class="wrapper">
 	<div class="text">
-		check the <a href="/leaderboard">leaderboard</a> or a list of all <a href="/fishes">fishes</a>
+		check the <a href="/leaderboard">leaderboard</a> or a list of all <a href="/fishes">fishes</a>.
+		see <a href="/stats">stats</a> for general stats.
 	</div>
 	<ul>
 		<li>Fishinge - fish every 6 hours</li>

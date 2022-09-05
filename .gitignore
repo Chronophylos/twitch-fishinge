@@ -8,3 +8,5 @@ fish.db
 .ipynb_checkpoints
 docker-compose.yaml
 fishes.sql
+templates
+!assets/templates

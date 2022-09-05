@@ -8,7 +8,7 @@ use database::{
 };
 use db::Db;
 use dotenvy::dotenv;
-use log::{debug, error};
+use log::{debug, error, warn};
 use rocket::{
     catch, catchers,
     fairing::{self, AdHoc},
@@ -78,7 +78,7 @@ fn rocket() -> Result<Rocket<Build>, Error> {
     let figment = rocket::Config::figment().merge((
         "databases.postgres",
         rocket_db_pools::Config {
-            url: env_var("DATABASE_URL").unwrap(),
+            url: env_var("DATABASE_URL")?,
             min_connections: None,
             max_connections: 1024,
             connect_timeout: 3,
@@ -94,8 +94,13 @@ fn rocket() -> Result<Rocket<Build>, Error> {
             engine.tera.register_filter("round2", round::<2>);
         }))
         .register("/", catchers![internal_server_error])
-        .mount("/", routes![index, leaderboard, get_fishes, user])
-        .mount("/", FileServer::from("/app/static"));
+        .mount("/", routes![index, leaderboard, get_fishes, user, stats])
+        .mount(
+            "/",
+            FileServer::from(
+                env::var("STATIC_DIR").unwrap_or_else(|_| "assets/static".to_string()),
+            ),
+        );
 
     Ok(rocket)
 }
@@ -273,6 +278,163 @@ async fn user(conn: Connection<Db>, username: String) -> Result<Template, Status
             user_name: &user.name,
             total_score: &total_score,
             top_catch: &top_catch,
+        },
+    ))
+}
+
+#[get("/stats")]
+async fn stats(conn: Connection<Db>) -> Result<Template, Status> {
+    #[derive(FromQueryResult, Serialize)]
+    struct TopCatch {
+        fish_name: String,
+        weight: Option<f32>,
+        value: f32,
+        user_name: String,
+    }
+
+    debug!("Querying top catch");
+    let top_catch = match Catches::find()
+        .order_by_desc(catches::Column::Value)
+        .join(JoinType::InnerJoin, catches::Relation::Fishes.def())
+        .join(JoinType::InnerJoin, catches::Relation::Users.def())
+        .select_only()
+        .column_as(fishes::Column::Name, "fish_name")
+        .column_as(users::Column::Name, "user_name")
+        .column(catches::Column::Value)
+        .column(catches::Column::Weight)
+        .into_model::<TopCatch>()
+        .one(&*conn)
+        .await
+    {
+        Ok(Some(top_catch)) => top_catch,
+        Ok(None) => {
+            warn!("No top catch found");
+            return Err(Status::NotFound);
+        }
+        Err(err) => {
+            error!("Error querying top catch: {err}");
+            return Err(Status::InternalServerError);
+        }
+    };
+
+    #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
+    enum QueryAs {
+        Score,
+    }
+
+    debug!("Querying total score");
+    let total_score: Option<f32> = match Catches::find()
+        .select_only()
+        .column_as(catches::Column::Value.sum(), "score")
+        .into_values::<_, QueryAs>()
+        .one(&*conn)
+        .await
+    {
+        Ok(Some(score)) => score,
+        Ok(None) => return Err(Status::NotFound),
+        Err(err) => {
+            error!("Error querying score: {err}");
+            return Err(Status::InternalServerError);
+        }
+    };
+
+    debug!("Querying total caught fishes");
+    let total_catches: i64 = match Catches::find()
+        .select_only()
+        .column_as(catches::Column::Id.count(), "score")
+        .into_values::<_, QueryAs>()
+        .one(&*conn)
+        .await
+    {
+        Ok(Some(total_catches)) => total_catches,
+        Ok(None) => return Err(Status::NotFound),
+        Err(err) => {
+            error!("Error querying total catches: {err}");
+            return Err(Status::InternalServerError);
+        }
+    };
+
+    debug!("Querying total caught trash");
+    let total_trash: i64 = match Catches::find()
+        .join(JoinType::InnerJoin, catches::Relation::Fishes.def())
+        .filter(fishes::Column::IsTrash.eq(true))
+        .select_only()
+        .column_as(catches::Column::Id.count(), "score")
+        .into_values::<_, QueryAs>()
+        .one(&*conn)
+        .await
+    {
+        Ok(Some(total_catches)) => total_catches,
+        Ok(None) => return Err(Status::NotFound),
+        Err(err) => {
+            error!("Error querying total catches: {err}");
+            return Err(Status::InternalServerError);
+        }
+    };
+
+    #[derive(FromQueryResult, Serialize)]
+    struct FishCatches {
+        html_name: String,
+        count: i32,
+        base_value: f32,
+        catches: i64,
+    }
+
+    debug!("Querying fishes and catches");
+    let fishes = match Fishes::find()
+        .join(JoinType::InnerJoin, fishes::Relation::Catches.def())
+        .column_as(catches::Column::FishId.count(), "catches")
+        .group_by(fishes::Column::Id)
+        .into_model::<FishCatches>()
+        .all(&*conn)
+        .await
+    {
+        Ok(fishes) => fishes,
+        Err(err) => {
+            error!("Error querying fishes: {err}");
+            return Err(Status::InternalServerError);
+        }
+    };
+
+    let population: i32 = fishes.iter().map(|fish| fish.count).sum();
+
+    #[derive(Serialize)]
+    struct FishEntry {
+        html_name: String,
+        count: i32,
+        base_value: f32,
+        catches: i64,
+        ideal_chance: f32,
+        real_chance: f32,
+        performance: f32,
+    }
+
+    let mut fish_entries: Vec<_> = fishes
+        .into_iter()
+        .map(|fish| FishEntry {
+            html_name: fish.html_name,
+            count: fish.count,
+            base_value: fish.base_value,
+            catches: fish.catches,
+            ideal_chance: fish.count as f32 / population as f32,
+            real_chance: fish.catches as f32 / total_catches as f32,
+            performance: fish.catches as f32
+                / total_catches as f32
+                / (fish.count as f32 / population as f32),
+        })
+        .collect();
+
+    fish_entries.sort_by_key(|row| (row.catches) as u64);
+    fish_entries.reverse();
+
+    Ok(Template::render(
+        "stats",
+        context! {
+            total_catches: &total_catches,
+            total_trash: &total_trash,
+            total_score: &total_score,
+            top_catch: &top_catch,
+            fishes: &fish_entries
         },
     ))
 }

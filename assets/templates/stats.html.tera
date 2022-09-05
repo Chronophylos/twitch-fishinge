@@ -1,0 +1,58 @@
+{% extends "base" %}
+{% block content %}
+<a href="/">go back</a>
+<div class="wrapper">
+    <h1>Stats</h1>
+    <table>
+        <tr>
+            <td>Total Fishes Caught</td>
+            <td>{{ total_catches }}</td>
+        </tr>
+        <tr>
+            <td>Total Trash Caught</td>
+            <td>{{ total_trash }}</td>
+        </tr>
+        <tr>
+            <td>Accumulate Score</td>
+            <td>${{ total_score | round2 }}</td>
+        </tr>
+        <tr>
+            <td>Most Valuable Catch</td>
+            <td>{{ top_catch.fish_name }}
+                {% if top_catch.weight -%}
+                at {{ top_catch.weight | round2 }}kg
+                {% endif -%}
+                worth
+                {% if top_catch.value > 0 -%}
+                ${{ top_catch.value | round2 }}
+                {% else -%}
+                nothing
+                {% endif -%}
+                caught by {{ top_catch.user_name }}
+            </td>
+        </tr>
+    </table>
+
+    <h1>Fishes</h1>
+    <table>
+        <tr>
+            <th>Name</th>
+            <th>Base Value</th>
+            <th>Times Caught</th>
+            <th>Ideal Probabiliy</th>
+            <th>Real Probability</th>
+            <th>Performance</th>
+        </tr>
+        {% for fish in fishes %}
+        <tr>
+            <td>{{ fish.html_name | safe }}</td>
+            <td>${{ fish.base_value | round2 }}</td>
+            <td>{{ fish.catches }}</td>
+            <td>{{ fish.ideal_chance * 100 | round2 }}%</td>
+            <td>{{ fish.real_chance * 100 | round2 }}%</td>
+            <td>{{ fish.performance * 100 | round2 }}%</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock content %}
