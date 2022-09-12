@@ -9,3 +9,4 @@ Justfile
 .env
 docker-compose.yaml
 *.ipynb
+*.ggb

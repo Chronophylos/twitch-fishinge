@@ -256,7 +256,8 @@ async fn user(conn: Connection<Db>, username: String) -> Result<Template, Status
         Score,
     }
 
-    let total_score: Option<f32> = match Catches::find()
+    debug!("Querying total score");
+    let total_score: f32 = match Catches::find()
         .filter(catches::Column::UserId.eq(user.id))
         .select_only()
         .column_as(catches::Column::Value.sum(), "score")
@@ -272,11 +273,30 @@ async fn user(conn: Connection<Db>, username: String) -> Result<Template, Status
         }
     };
 
+    debug!("Querying total caught fishes");
+    let total_catches: i64 = match Catches::find()
+        .filter(catches::Column::UserId.eq(user.id))
+        .select_only()
+        .column_as(catches::Column::Id.count(), "score")
+        .into_values::<_, QueryAs>()
+        .one(&*conn)
+        .await
+    {
+        Ok(Some(total_catches)) => total_catches,
+        Ok(None) => return Err(Status::NotFound),
+        Err(err) => {
+            error!("Error querying total catches: {err}");
+            return Err(Status::InternalServerError);
+        }
+    };
+
     Ok(Template::render(
         "user",
         context! {
             user_name: &user.name,
             total_score: &total_score,
+            total_catches: &total_catches,
+            avg_catch_value: total_score / total_catches as f32,
             top_catch: &top_catch,
         },
     ))

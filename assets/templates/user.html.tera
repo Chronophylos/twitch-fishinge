@@ -8,6 +8,14 @@
 			<td>Total Score</td>
 			<td>${{ total_score | round2 }}</td>
 		</tr>
+		<tr>
+			<td>Total Catches</td>
+			<td>{{ total_catches }}</td>
+		</tr>
+		<tr>
+			<td>Average Catch Value</td>
+			<td>${{ avg_catch_value | round2 }}</td>
+		</tr>
 		{% if top_catch %}
 		<tr>
 			<td>Most Valuable Catch</td>
