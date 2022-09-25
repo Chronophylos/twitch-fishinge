@@ -1,4 +1,11 @@
 {% extends "base" %}
+{% block head %}
+{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@^3"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.0.4/build/global/luxon.min.js"
+	integrity="sha256-APLcdSn5AMXqZzoKhlczWWyV93oXBTrfkjhqtMX8vEM=" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@^1"></script>
+{% endblock head %}
 {% block content %}
 <a href="/">home</a> | <a href="/leaderboard">go back</a>
 <div class="wrapper">
@@ -33,5 +40,42 @@
 		</tr>
 		{% endif %}
 	</table>
+	<div class="chart-container" style="position: relative; height:40vh; width:50vw">
+		<script>
+			const data = {
+				datasets: [{
+					label: 'Total Score',
+					backgroundColor: 'rgb(255, 99, 132)',
+					borderColor: 'rgb(255, 99, 132)',
+					parsing: false,
+					data: [{% for catch in catches %}
+						{ x: {{ catch.caught_at }}, y: {{ catch.value }} },
+			{% endfor %}]
+				}],
+			};
+
+			const config = {
+				type: 'line',
+				data: data,
+				options: {
+					scales: {
+						x: {
+							type: 'time',
+							time: {
+								unit: 'day'
+							}
+						}
+					}
+				}
+			};
+		</script>
+		<canvas id="myChart"></canvas>
+		<script>
+			const myChart = new Chart(
+				document.getElementById('myChart'),
+				config
+			);
+		</script>
+	</div>
 </div>
 {% endblock content %}

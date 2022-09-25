@@ -2,6 +2,7 @@ mod db;
 
 use std::{collections::HashMap, env};
 
+use chrono::{DateTime, Utc};
 use database::{
     entities::{catches, fishes, prelude::*, users},
     migrate,
@@ -290,6 +291,46 @@ async fn user(conn: Connection<Db>, username: String) -> Result<Template, Status
         }
     };
 
+    #[derive(FromQueryResult)]
+    struct CatchQuery {
+        caught_at: DateTime<Utc>,
+        value: f32,
+    }
+
+    #[derive(Serialize)]
+    struct Catch {
+        caught_at: i64,
+        value: f32,
+    }
+
+    debug!("Querying last all catches");
+    let catches: Vec<_> = match Catches::find()
+        .filter(catches::Column::UserId.eq(user.id))
+        .column(catches::Column::CaughtAt)
+        .column(catches::Column::Value)
+        .into_model::<CatchQuery>()
+        .all(&*conn)
+        .await
+    {
+        Ok(catches) => {
+            let mut total = 0.0;
+            catches
+                .into_iter()
+                .map(|catch| {
+                    total += catch.value;
+                    Catch {
+                        value: total,
+                        caught_at: catch.caught_at.timestamp_millis(),
+                    }
+                })
+                .collect()
+        }
+        Err(err) => {
+            error!("Error querying catches: {err}");
+            return Err(Status::InternalServerError);
+        }
+    };
+
     Ok(Template::render(
         "user",
         context! {
@@ -298,6 +339,7 @@ async fn user(conn: Connection<Db>, username: String) -> Result<Template, Status
             total_catches: &total_catches,
             avg_catch_value: total_score / total_catches as f32,
             top_catch: &top_catch,
+            catches: &catches,
         },
     ))
 }
