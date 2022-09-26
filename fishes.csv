@@ -1,0 +1,34 @@
+id,name,html_name,count,base_value,max_weight,min_weight,is_trash
+4,🐍,🐍,50,60,0,0,f
+5,🐉,🐉,10,400,0,0,f
+6,Snailge,"<img src=""https://cdn.frankerfacez.com/emote/619438/4"" height=""32"" alt=""Snailge""/>",80,15,0,0,f
+7,🥒,🥒,80,5,0,0,f
+8,🦆,🦆,100,30,5,2,f
+9,🐸,🐸,50,20,0,0,f
+30,Hhhehehe,"<img src=""https://cdn.betterttv.net/emote/566ca02865dbbdab32ec0547/3x"" height=""32"" alt=""Hhhehehe""/>",10,200,0,0,f
+31,DuckerZ,"<img src=""https://cdn.betterttv.net/emote/573d38b50ffbf6cc5cc38dc9/3x"" height=""32"" alt=""DuckerZ""/>",10,120,8,3,f
+32,FLOPPA,"<img src=""https://cdn.7tv.app/emote/603eb97c115b55000d7282ec/4x"" height=""32"" alt=""FLOPPA""/>",1,2000,0,0,f
+10,🐚,🐚,150,10,0,0,f
+11,🐢,🐢,100,30,500,10,f
+12,🐟,🐟,200,20,5,0.2,f
+13,🐠,🐠,140,30,5,0.2,f
+14,🐡,🐡,100,40,5,0.2,f
+15,🦐,🦐,100,30,0,0,f
+16,🦑,🦑,80,50,0,0,f
+17,🦈,🦈,70,150,771,522,f
+18,💀,💀,50,50,0,0,t
+19,💰,💰,1,1000,10,1,f
+20,🦀,🦀,10,400,14,10,f
+21,🐳,🐳,10,800,130000,88000,f
+22,🐯🦈,🐯🦈,10,200,635,175,f
+23,🔨🦈,🔨🦈,10,300,580,3,f
+24,🌚🐟,🌚🐟,10,210,270,100,f
+25,🌞🐟,🌞🐟,10,230,2000,247,f
+1,👞,👞,200,0,0,0,t
+2,💣,💣,25,-50,0,0,t
+28,deviW,"<img src=""https://cdn.7tv.app/emote/60b5065916a054a6eac1240b/4x"" height=""32"" alt=""deviW""/>",1,-500,200,100,t
+29,FishMoley,"<img src=""https://cdn.betterttv.net/emote/566ca00f65dbbdab32ec0544/3x"" height=""32"" alt=""FishMoley""/>",10,100,10,3.5,f
+3,🥫,🥫,50,0,0,0,t
+33,🐬,🐬,50,100,650,150,f
+27,Magerquark,"<img src=""https://cdn.7tv.app/emote/60d73cd5d7e0d54212783696/4x"" height=""32"" alt=""Magerquark""/>",10,1.39,0.5,0.25,t
+26,Dedge 🚓,"<img src=""https://cdn.7tv.app/emote/610c108093d7e5d60ddb33f4/4x"" height=""32"" alt=""Dedge""/>🚓",10,-100,0,0,t
