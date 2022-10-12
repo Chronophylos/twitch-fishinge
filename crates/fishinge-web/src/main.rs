@@ -443,20 +443,17 @@ async fn stats(conn: Connection<Db>) -> Result<Template, Status> {
     }
 
     debug!("Querying fishes and catches");
-    let fishes = match Fishes::find()
+    let fishes = Fishes::find()
         .join(JoinType::InnerJoin, fishes::Relation::Catches.def())
         .column_as(catches::Column::FishId.count(), "catches")
         .group_by(fishes::Column::Id)
         .into_model::<FishCatches>()
         .all(&*conn)
         .await
-    {
-        Ok(fishes) => fishes,
-        Err(err) => {
+        .map_err(|err| {
             error!("Error querying fishes: {err}");
-            return Err(Status::InternalServerError);
-        }
-    };
+            Status::InternalServerError
+        })?;
 
     let population: i32 = fishes.iter().map(|fish| fish.count).sum();
 
@@ -489,6 +486,49 @@ async fn stats(conn: Connection<Db>) -> Result<Template, Status> {
     fish_entries.sort_by_key(|row| (row.catches) as u64);
     fish_entries.reverse();
 
+    #[derive(Serialize)]
+    struct Catch {
+        caught_at: i64,
+        value: f32,
+    }
+
+    #[derive(Serialize)]
+    struct User {
+        name: String,
+        catches: Vec<Catch>,
+    }
+
+    debug!("Querying users and catches");
+    let users: Vec<_> = Users::find()
+        .find_with_related(Catches)
+        .all(&*conn)
+        .await
+        .map_err(|err| {
+            error!("Error querying users: {err}");
+            Status::InternalServerError
+        })?
+        .into_iter()
+        .map(|(user, mut catches)| {
+            let mut total = 0.0;
+            catches.sort_by_key(|catch| catch.caught_at);
+            let catches = catches
+                .into_iter()
+                .map(|catch| {
+                    total += catch.value;
+                    Catch {
+                        caught_at: catch.caught_at.timestamp_millis(),
+                        value: total,
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            User {
+                name: user.name,
+                catches,
+            }
+        })
+        .collect();
+
     Ok(Template::render(
         "stats",
         context! {
@@ -496,7 +536,8 @@ async fn stats(conn: Connection<Db>) -> Result<Template, Status> {
             total_trash: &total_trash,
             total_score: &total_score,
             top_catch: &top_catch,
-            fishes: &fish_entries
+            fishes: &fish_entries,
+            users: &users,
         },
     ))
 }
