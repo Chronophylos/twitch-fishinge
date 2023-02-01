@@ -33,4 +33,5 @@ url = "2.2.2"
 
 [dev-dependencies]
 approx = "0.5.1"
+indicatif = "0.17.1"
 test-case = "2.2.1"

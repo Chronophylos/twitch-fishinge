@@ -3,41 +3,36 @@
 use std::{
     collections::HashSet,
     env,
-    fmt::Display,
-    ops::Range,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc,
     },
     time::Duration as StdDuration,
 };
 
-use async_trait::async_trait;
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use database::{
     connection,
-    entities::{
-        accounts, catches, fishes, messages, prelude::*, sea_orm_active_enums::MessageType, users,
-    },
+    entities::{catches, fishes, messages, prelude::*, sea_orm_active_enums::MessageType, users},
     migrate,
 };
 use dotenvy::dotenv;
 use eyre::{eyre, Result, WrapErr};
+use fishinge_bot::{get_fishes, Account, Catch};
 use futures_lite::stream::StreamExt;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
-use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, Rng, SeedableRng};
+use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, SeedableRng};
 use regex::Regex;
 use sea_orm::{
     sea_query::OnConflict, ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection,
-    DeriveColumn, EntityTrait, EnumIter, FromQueryResult, IdenStatic, QueryFilter, QueryOrder,
-    QuerySelect,
+    DeriveColumn, EntityTrait, EnumIter, IdenStatic, QueryFilter, QueryOrder, QuerySelect,
 };
 use signal_hook::consts::*;
 use signal_hook_tokio::Signals;
 use tokio::{select, sync::Notify};
 use twitch_irc::{
-    login::{RefreshingLoginCredentials, TokenStorage, UserAccessToken},
+    login::RefreshingLoginCredentials,
     message::{PrivmsgMessage, ServerMessage},
     ClientConfig, SecureTCPTransport, TwitchIRCClient,
 };
@@ -69,171 +64,6 @@ enum Error {
 
     #[error("Signal hooking error")]
     Signals(#[source] std::io::Error),
-}
-
-static FISH_POPULATION: RwLock<i32> = RwLock::new(0);
-static COOLDOWN: Lazy<Duration> = Lazy::new(|| Duration::hours(4));
-
-#[derive(Debug, Clone)]
-struct Fish {
-    id: i32,
-    name: String,
-    count: u32,
-    base_value: i32,
-    weight_range: Option<Range<f32>>,
-}
-
-impl Fish {
-    pub fn catch(&self) -> Catch {
-        let mut rng = rand::thread_rng();
-
-        let weight = self
-            .weight_range
-            .clone()
-            .map(|weight| rng.gen_range(weight));
-
-        Catch::new(self, weight)
-    }
-}
-
-impl From<database::entities::fishes::Model> for Fish {
-    fn from(fish: database::entities::fishes::Model) -> Self {
-        Self {
-            id: fish.id,
-            name: fish.name,
-            count: fish.count as u32,
-            base_value: fish.base_value as i32,
-            weight_range: if fish.min_weight > f32::EPSILON && fish.max_weight > f32::EPSILON {
-                Some(fish.min_weight..fish.max_weight)
-            } else {
-                None
-            },
-        }
-    }
-}
-
-impl Display for Fish {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} ({:.1}%)",
-            self.name,
-            self.count as f32 / *FISH_POPULATION.read().unwrap() as f32 * 100.0
-        )?;
-
-        if let Some(weight) = &self.weight_range {
-            write!(f, " ({:.1}kg - {:.1}kg)", weight.start, weight.end)?;
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Catch {
-    fish_name: String,
-    weight: Option<f32>,
-    value: f32,
-}
-
-impl Catch {
-    pub fn new(fish: &Fish, weight: Option<f32>) -> Self {
-        let multiplier = fish
-            .weight_range
-            .as_ref()
-            .and_then(|range| {
-                weight.map(|weight| (weight - range.start) / (range.end - range.start))
-            })
-            .map_or(1.0, |x| (x * 1.36 - 0.48).powi(3) + 1.01 + x * 0.11);
-
-        Self {
-            fish_name: fish.name.clone(),
-            weight,
-            value: fish.base_value as f32 * multiplier,
-        }
-    }
-}
-
-impl Display for Catch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.fish_name)?;
-        if let Some(weight) = self.weight {
-            write!(f, " ({:.1}kg)", weight)?;
-        }
-        if self.value.abs() > f32::EPSILON {
-            write!(f, " worth ${:.2}", self.value)?;
-        } else {
-            write!(f, " worth nothing")?;
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-struct Account {
-    id: i32,
-    db: DatabaseConnection,
-}
-
-impl Account {
-    pub async fn new(db: DatabaseConnection, username: &str) -> Result<Self> {
-        #[derive(FromQueryResult)]
-        struct AccountId {
-            id: i32,
-        }
-
-        let id = Accounts::find()
-            .filter(accounts::Column::Username.eq(username))
-            .select_only()
-            .column(accounts::Column::Id)
-            .into_model::<AccountId>()
-            .one(&db)
-            .await?
-            .ok_or_else(|| eyre!("account `{username}` not found in database"))?
-            .id;
-
-        Ok(Self { id, db })
-    }
-}
-
-#[async_trait]
-impl TokenStorage for Account {
-    type LoadError = eyre::Error;
-    type UpdateError = eyre::Error;
-
-    async fn load_token(&mut self) -> Result<UserAccessToken, Self::LoadError> {
-        let account = Accounts::find_by_id(self.id)
-            .one(&self.db)
-            .await
-            .wrap_err("Could not query account")?
-            .ok_or_else(|| eyre::eyre!("Account not found"))?;
-
-        Ok(UserAccessToken {
-            access_token: account.access_token,
-            refresh_token: account.refresh_token,
-            created_at: account.created_at.into(),
-            expires_at: account.expires_at.map(Into::into),
-        })
-    }
-
-    async fn update_token(&mut self, token: &UserAccessToken) -> Result<(), Self::UpdateError> {
-        let account = accounts::ActiveModel {
-            id: ActiveValue::unchanged(self.id),
-            access_token: ActiveValue::set(token.access_token.clone()),
-            refresh_token: ActiveValue::set(token.refresh_token.clone()),
-            created_at: ActiveValue::set(token.created_at.into()),
-            expires_at: ActiveValue::set(token.expires_at.map(Into::into)),
-            ..Default::default()
-        };
-
-        account
-            .update(&self.db)
-            .await
-            .wrap_err("Could not update account")?;
-
-        Ok(())
-    }
 }
 
 type Client = TwitchIRCClient<SecureTCPTransport, RefreshingLoginCredentials<Account>>;
@@ -377,16 +207,6 @@ async fn handle_server_message(
 static COMMAND_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^((?P<emote>\S+)\s+)?Fishinge( (?P<args>.*))?$").unwrap());
 const WEB_URL: &str = "https://fishinge.chronophylos.com";
-
-async fn get_fishes(db: &DatabaseConnection) -> Result<Vec<Fish>, Error> {
-    let fishes = Fishes::find().all(db).await?;
-
-    let population = fishes.iter().map(|fish| fish.count).sum();
-
-    *FISH_POPULATION.write().unwrap() = population;
-
-    Ok(fishes.into_iter().map(Fish::from).collect())
-}
 
 async fn handle_privmsg(
     db: &DatabaseConnection,
@@ -551,6 +371,8 @@ async fn handle_privmsg(
     }
 }
 
+pub static COOLDOWN: Lazy<Duration> = Lazy::new(|| Duration::hours(4));
+
 async fn handle_fishinge(
     db: &DatabaseConnection,
     client: &Client,
@@ -653,7 +475,10 @@ async fn handle_fishinge(
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
+
     use approx::assert_ulps_eq;
+    use fishinge_bot::Fish;
     use test_case::test_case;
 
     use super::*;
