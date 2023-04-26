@@ -9,7 +9,7 @@ impl MigrationTrait for Migration {
         manager
             .create_type(
                 Type::create()
-                    .as_enum(MessageType::Table)
+                    .as_enum(MessageType::Type)
                     .values(vec![MessageType::Cooldown])
                     .to_owned(),
             )
@@ -30,7 +30,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Messages::Text).string().not_null())
                     .col(
                         ColumnDef::new(Messages::Type)
-                            .custom(MessageType::Table)
+                            .custom(MessageType::Type)
                             .not_null(),
                     )
                     .to_owned(),
@@ -44,7 +44,7 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .drop_type(Type::drop().name(MessageType::Table).to_owned())
+            .drop_type(Type::drop().name(MessageType::Type).to_owned())
             .await
     }
 }
@@ -58,8 +58,21 @@ enum Messages {
     Type,
 }
 
-#[derive(Iden)]
 enum MessageType {
-    Table,
+    Type,
     Cooldown,
+}
+
+impl Iden for MessageType {
+    fn unquoted(&self, s: &mut dyn std::fmt::Write) {
+        write!(
+            s,
+            "{}",
+            match self {
+                Self::Type => "message_type",
+                Self::Cooldown => "cooldown",
+            }
+        )
+        .unwrap();
+    }
 }

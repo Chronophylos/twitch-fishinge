@@ -461,6 +461,7 @@ async fn handle_fishinge(
         weight: ActiveValue::set(catch.weight),
         caught_at: ActiveValue::set(now),
         value: ActiveValue::set(catch.value),
+        season: ActiveValue::set(1),
         ..Default::default()
     }
     .insert(db)

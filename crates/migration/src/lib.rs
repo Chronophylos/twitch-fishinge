@@ -7,6 +7,7 @@ mod m20220828_135214_create_messages_table;
 mod m20220828_143222_create_seasons_table;
 mod m20220828_143304_create_seasons_data_table;
 mod m20220829_150037_create_accounts_table;
+mod m20230426_115812_integrate_seasons;
 
 pub struct Migrator;
 
@@ -21,6 +22,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20220828_143222_create_seasons_table::Migration),
             Box::new(m20220828_143304_create_seasons_data_table::Migration),
             Box::new(m20220829_150037_create_accounts_table::Migration),
+            Box::new(m20230426_115812_integrate_seasons::Migration),
         ]
     }
 }
