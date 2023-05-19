@@ -69,6 +69,20 @@ impl Display for Fish {
     }
 }
 
+pub async fn get_active_season(db: &DatabaseConnection) -> Result<Season, DbErr> {
+    let season = Seasons::find()
+        .filter(Seasons::Start.is_not_null())
+        .filter(Seasons::End.is_null())
+        .one(db)
+        .await?;
+
+    if let Some(season) = season {
+        Ok(season)
+    } else {
+        Err(eyre!("No active season found"))
+    }
+}
+
 pub async fn get_fishes(db: &DatabaseConnection) -> Result<Vec<Fish>, DbErr> {
     let fishes = Fishes::find().all(db).await?;
 

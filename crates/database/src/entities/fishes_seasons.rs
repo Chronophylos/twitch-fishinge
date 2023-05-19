@@ -2,16 +2,10 @@
 
 use sea_orm::entity::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "catches")]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
+#[sea_orm(table_name = "fishes_seasons")]
 pub struct Model {
-    #[sea_orm(primary_key)]
-    pub id: i32,
-    pub user_id: i32,
     pub fish_id: i32,
-    pub weight: Option<f32>,
-    pub caught_at: DateTimeWithTimeZone,
-    pub value: f32,
     pub season_id: i32,
 }
 
@@ -33,14 +27,6 @@ pub enum Relation {
         on_delete = "NoAction"
     )]
     Seasons,
-    #[sea_orm(
-        belongs_to = "super::users::Entity",
-        from = "Column::UserId",
-        to = "super::users::Column::Id",
-        on_update = "NoAction",
-        on_delete = "NoAction"
-    )]
-    Users,
 }
 
 impl Related<super::fishes::Entity> for Entity {
@@ -52,12 +38,6 @@ impl Related<super::fishes::Entity> for Entity {
 impl Related<super::seasons::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Seasons.def()
-    }
-}
-
-impl Related<super::users::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Users.def()
     }
 }
 
