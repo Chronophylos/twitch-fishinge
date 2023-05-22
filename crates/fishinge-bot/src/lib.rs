@@ -3,16 +3,31 @@
 use std::{fmt::Display, ops::Range, sync::RwLock};
 
 use async_trait::async_trait;
-use database::entities::{accounts, prelude::*};
+use database::entities::{accounts, fishes, prelude::*, seasons};
 use eyre::{eyre, Result, WrapErr};
 use rand::Rng;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, DbErr, EntityTrait,
-    FromQueryResult, QueryFilter, QuerySelect,
+    ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult,
+    Linked, ModelTrait, QueryFilter, QuerySelect, RelationTrait,
 };
 use twitch_irc::login::{TokenStorage, UserAccessToken};
 
 pub static FISH_POPULATION: RwLock<i32> = RwLock::new(0);
+
+#[derive(Debug)]
+pub struct SeasonToFish;
+
+impl Linked for SeasonToFish {
+    type FromEntity = seasons::Entity;
+    type ToEntity = fishes::Entity;
+
+    fn link(&self) -> Vec<sea_orm::LinkDef> {
+        vec![
+            seasons::Relation::FishesSeasons.def().rev(),
+            fishes::Relation::FishesSeasons.def(),
+        ]
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Fish {
@@ -69,12 +84,13 @@ impl Display for Fish {
     }
 }
 
-pub async fn get_active_season(db: &DatabaseConnection) -> Result<Season, DbErr> {
+pub async fn get_active_season(db: &DatabaseConnection) -> Result<seasons::Model> {
     let season = Seasons::find()
-        .filter(Seasons::Start.is_not_null())
-        .filter(Seasons::End.is_null())
+        .filter(seasons::Column::Start.is_not_null())
+        .filter(seasons::Column::End.is_null())
         .one(db)
-        .await?;
+        .await
+        .wrap_err("Could not fetch seasons")?;
 
     if let Some(season) = season {
         Ok(season)
@@ -83,8 +99,10 @@ pub async fn get_active_season(db: &DatabaseConnection) -> Result<Season, DbErr>
     }
 }
 
-pub async fn get_fishes(db: &DatabaseConnection) -> Result<Vec<Fish>, DbErr> {
-    let fishes = Fishes::find().all(db).await?;
+pub async fn get_fishes(db: &DatabaseConnection, season: &seasons::Model) -> Result<Vec<Fish>> {
+    let fishes = season.find_linked(SeasonToFish).all(db).await?;
+
+    dbg!(&fishes);
 
     let population = fishes.iter().map(|fish| fish.count).sum();
 

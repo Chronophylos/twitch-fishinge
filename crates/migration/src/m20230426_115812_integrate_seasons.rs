@@ -44,6 +44,12 @@ impl MigrationTrait for Migration {
             .create_table(
                 Table::create()
                     .table(FishesSeasons::Table)
+                    .col(
+                        ColumnDef::new(FishesSeasons::Id)
+                            .integer()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(FishesSeasons::FishId).integer().not_null())
                     .col(ColumnDef::new(FishesSeasons::SeasonId).integer().not_null())
                     .foreign_key(
@@ -145,6 +151,7 @@ pub enum Seasons {
 #[derive(Iden)]
 pub enum FishesSeasons {
     Table,
+    Id,
     FishId,
     SeasonId,
 }

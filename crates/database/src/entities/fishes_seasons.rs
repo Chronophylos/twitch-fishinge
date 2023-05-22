@@ -5,6 +5,8 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "fishes_seasons")]
 pub struct Model {
+    #[sea_orm(primary_key, auto_increment = false)]
+    pub id: i32,
     pub fish_id: i32,
     pub season_id: i32,
 }

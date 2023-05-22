@@ -18,7 +18,7 @@ use database::{
 };
 use dotenvy::dotenv;
 use eyre::{eyre, Result, WrapErr};
-use fishinge_bot::{get_fishes, Account, Catch};
+use fishinge_bot::{get_active_season, get_fishes, Account, Catch};
 use futures_lite::stream::StreamExt;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
@@ -26,7 +26,7 @@ use rand::{rngs::StdRng, seq::SliceRandom, thread_rng, SeedableRng};
 use regex::Regex;
 use sea_orm::{
     sea_query::OnConflict, ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection,
-    DeriveColumn, EntityTrait, EnumIter, IdenStatic, QueryFilter, QueryOrder, QuerySelect,
+    DeriveColumn, EntityTrait, EnumIter, QueryFilter, QueryOrder, QuerySelect,
 };
 use signal_hook::consts::*;
 use signal_hook_tokio::Signals;
@@ -441,7 +441,8 @@ async fn handle_fishinge(
         user.insert(db).await?
     };
 
-    let fishes = get_fishes(db).await?;
+    let season = get_active_season(db).await?;
+    let fishes = get_fishes(db, &season).await?;
 
     if fishes.is_empty() {
         return Err(eyre!("no fishes found in database"));
@@ -461,7 +462,7 @@ async fn handle_fishinge(
         weight: ActiveValue::set(catch.weight),
         caught_at: ActiveValue::set(now),
         value: ActiveValue::set(catch.value),
-        season: ActiveValue::set(1),
+        season_id: ActiveValue::set(season.id),
         ..Default::default()
     }
     .insert(db)
