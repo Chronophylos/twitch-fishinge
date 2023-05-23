@@ -63,15 +63,25 @@ impl MigrationTrait for Migration {
             .create_table(
                 Table::create()
                     .table(FishesSeasons::Table)
+                    // .col(
+                    //     ColumnDef::new(FishesSeasons::Id)
+                    //         .integer()
+                    //         .not_null()
+                    //         .primary_key()
+                    //         .auto_increment(),
+                    // )
                     .col(
-                        ColumnDef::new(FishesSeasons::Id)
+                        ColumnDef::new(FishesSeasons::FishId)
                             .integer()
                             .not_null()
-                            .primary_key()
-                            .auto_increment(),
+                            .primary_key(),
                     )
-                    .col(ColumnDef::new(FishesSeasons::FishId).integer().not_null())
-                    .col(ColumnDef::new(FishesSeasons::SeasonId).integer().not_null())
+                    .col(
+                        ColumnDef::new(FishesSeasons::SeasonId)
+                            .integer()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("FK_fishes_seasons_fish_id")
