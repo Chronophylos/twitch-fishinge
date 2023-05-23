@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 async-std = { version = "^1", features = ["attributes", "tokio1"] }
-chrono = "0.4.22"
+chrono = "0.4.24"
 sea-query = { version = "0.28.5", features = ["with-chrono"] }
 sea-query-binder = { version = "0.3.1", features = ["with-chrono"] }
 
