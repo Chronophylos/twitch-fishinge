@@ -1546,6 +1546,8 @@ dependencies = [
  "async-std",
  "chrono",
  "sea-orm-migration",
+ "sea-query",
+ "sea-query-binder",
 ]
 
 [[package]]
