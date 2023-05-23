@@ -11,6 +11,34 @@ impl MigrationTrait for Migration {
         manager
             .alter_table(
                 Table::alter()
+                    .table(Seasons::Table)
+                    .add_column(
+                        ColumnDef::new(Seasons::Start)
+                            .not_null()
+                            .timestamp_with_time_zone(),
+                    )
+                    .add_column(ColumnDef::new(Seasons::End).timestamp_with_time_zone())
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .exec_stmt(
+                Query::insert()
+                    .into_table(Seasons::Table)
+                    .columns([Seasons::Id, Seasons::Name, Seasons::Start])
+                    .values_panic(vec![
+                        1.into(),
+                        "Legacy".into(),
+                        "2022-08-31 12:0:0.000000+00".into(),
+                    ])
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
                     .table(Catches::Table)
                     .add_column(
                         ColumnDef::new(Catches::SeasonId)
@@ -26,16 +54,6 @@ impl MigrationTrait for Migration {
                             .to_tbl(Seasons::Table)
                             .to_col(Seasons::Id),
                     )
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .alter_table(
-                Table::alter()
-                    .table(Seasons::Table)
-                    .add_column(ColumnDef::new(Seasons::Start).timestamp_with_time_zone())
-                    .add_column(ColumnDef::new(Seasons::End).timestamp_with_time_zone())
                     .to_owned(),
             )
             .await?;
@@ -85,15 +103,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        manager
-            .exec_stmt(
-                Query::insert()
-                    .into_table(Seasons::Table)
-                    .columns([Seasons::Id, Seasons::Name])
-                    .values_panic(vec![1.into(), "Legacy".into()])
-                    .to_owned(),
-            )
-            .await
+        Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
