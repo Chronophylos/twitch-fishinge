@@ -1,3 +1,4 @@
+use chrono::{TimeZone, Utc};
 use sea_orm_migration::prelude::{Table, *};
 
 use crate::m20220828_125955_create_fishes_table::Fishes;
@@ -30,7 +31,7 @@ impl MigrationTrait for Migration {
                     .values_panic(vec![
                         1.into(),
                         "Legacy".into(),
-                        "2022-08-31 12:0:0.000000+00".into(),
+                        Utc.with_ymd_and_hms(2022, 8, 31, 12, 0, 0).unwrap().into(),
                     ])
                     .to_owned(),
             )
@@ -66,7 +67,8 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(FishesSeasons::Id)
                             .integer()
                             .not_null()
-                            .primary_key(),
+                            .primary_key()
+                            .auto_increment(),
                     )
                     .col(ColumnDef::new(FishesSeasons::FishId).integer().not_null())
                     .col(ColumnDef::new(FishesSeasons::SeasonId).integer().not_null())
