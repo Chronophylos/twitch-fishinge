@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Datelike, FixedOffset, Offset, TimeZone, Utc};
 use database::entities::{accounts, prelude::*, seasons};
 use eyre::{eyre, Result, WrapErr};
+use log::info;
 use rand::Rng;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult,
@@ -106,15 +107,18 @@ struct YearAndQuarter {
 
 impl YearAndQuarter {
     pub fn from_start(start: DateTime<FixedOffset>) -> Self {
-        let (year, quarter) = match start.month() {
-            1 | 2 | 3 => (start.year(), Quarter::Second),
-            4 | 5 | 6 => (start.year(), Quarter::Third),
-            7 | 8 | 9 => (start.year(), Quarter::Fourth),
-            10 | 11 | 12 => (start.year() + 1, Quarter::First),
+        let quarter = match start.month() {
+            1 | 2 | 3 => Quarter::First,
+            4 | 5 | 6 => Quarter::Second,
+            7 | 8 | 9 => Quarter::Third,
+            10 | 11 | 12 => Quarter::Fourth,
             _ => unreachable!(),
         };
 
-        Self { year, quarter }
+        Self {
+            year: start.year(),
+            quarter,
+        }
     }
 
     pub fn start(&self) -> DateTime<FixedOffset> {
@@ -148,7 +152,7 @@ impl YearAndQuarter {
 
 impl Display for YearAndQuarter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {}", self.year, self.quarter)
+        write!(f, "{} {}", self.quarter, self.year)
     }
 }
 
@@ -177,6 +181,8 @@ async fn create_season(
     start: DateTime<FixedOffset>,
     end: DateTime<FixedOffset>,
 ) -> Result<()> {
+    info!("Creating season {} ({:?} - {:?})", name, start, end);
+
     Seasons::insert(seasons::ActiveModel {
         name: ActiveValue::set(name),
         start: ActiveValue::set(start),
@@ -197,10 +203,11 @@ pub async fn create_next_season(db: &DatabaseConnection) -> Result<()> {
         return Err(eyre!("No season found"))
     };
 
+    // handle legacy season
     let start = if latest_season.end.is_none() {
-        latest_season.start
-    } else {
         Utc::now().with_timezone(&Utc.fix())
+    } else {
+        latest_season.start
     };
 
     let quarter = YearAndQuarter::from_start(start);
