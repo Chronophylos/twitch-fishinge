@@ -8,7 +8,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub name: String,
-    pub start: Option<DateTimeWithTimeZone>,
+    pub start: DateTimeWithTimeZone,
     pub end: Option<DateTimeWithTimeZone>,
 }
 
@@ -16,8 +16,6 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(has_many = "super::catches::Entity")]
     Catches,
-    #[sea_orm(has_many = "super::fishes_seasons::Entity")]
-    FishesSeasons,
     #[sea_orm(has_many = "super::season_data::Entity")]
     SeasonData,
 }
@@ -28,15 +26,18 @@ impl Related<super::catches::Entity> for Entity {
     }
 }
 
-impl Related<super::fishes_seasons::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::FishesSeasons.def()
-    }
-}
-
 impl Related<super::season_data::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::SeasonData.def()
+    }
+}
+
+impl Related<super::fishes::Entity> for Entity {
+    fn to() -> RelationDef {
+        super::fishes_seasons::Relation::Fishes.def()
+    }
+    fn via() -> Option<RelationDef> {
+        Some(super::fishes_seasons::Relation::Seasons.def().rev())
     }
 }
 
