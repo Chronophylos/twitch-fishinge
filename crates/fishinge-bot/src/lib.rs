@@ -73,7 +73,11 @@ impl Display for Fish {
 pub async fn get_active_season(db: &DatabaseConnection) -> Result<seasons::Model> {
     let season = Seasons::find()
         .filter(seasons::Column::Start.lt(chrono::Utc::now()))
-        .filter(seasons::Column::End.gt(chrono::Utc::now()))
+        .filter(
+            seasons::Column::End
+                .gt(chrono::Utc::now())
+                .or(seasons::Column::End.is_null()),
+        )
         .one(db)
         .await
         .wrap_err("Could not fetch seasons")?;
