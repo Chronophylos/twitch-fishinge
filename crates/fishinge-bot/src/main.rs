@@ -18,7 +18,9 @@ use database::{
 };
 use dotenvy::dotenv;
 use eyre::{eyre, Result, WrapErr};
-use fishinge_bot::{get_active_season, get_fishes, Account, Catch};
+use fishinge_bot::{
+    create_next_season, get_active_season, get_fishes, has_next_season, Account, Catch,
+};
 use futures_lite::stream::StreamExt;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
@@ -107,6 +109,39 @@ async fn run() -> Result<()> {
     info!("Running Migrations");
     migrate(&db).await?;
 
+    let season_create_task = tokio::spawn({
+        let db = (&db).clone();
+        let quit_signal = quit_signal.clone();
+
+        async move {
+            // once per week
+            let mut interval = tokio::time::interval(StdDuration::from_secs(60 * 60 * 24 * 7));
+
+            while !QUITTING.load(Ordering::Relaxed) {
+                select! {
+                    _ = interval.tick() => {
+                        match has_next_season(&db).await {
+                            Ok(false) => {
+                                debug!("Creating next season");
+                                if let Err(err) = create_next_season(&db).await {
+                                    error!("Error creating next season: {err}");
+                                }
+                            }
+                            Err(err) => {
+                                error!("Error checking for next season: {err}");
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ = quit_signal.notified() => {
+                        debug!("Received quitting twitch task");
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
     let username = env_var("USERNAME")?;
     let client_id = env_var("CLIENT_ID")?;
     let client_secret = env_var("CLIENT_SECRET")?;
@@ -134,7 +169,7 @@ async fn run() -> Result<()> {
                 select! {
                     maybe_message = incoming_messages.recv() => {
                         if let Some(message) = maybe_message {
-                            if let Err(err)=handle_server_message(&db, &client, message).await {
+                            if let Err(err) = handle_server_message(&db, &client, message).await {
                                 error!("Error handling message: {err}");
                             }
 
@@ -170,6 +205,8 @@ async fn run() -> Result<()> {
     // keep the tokio executor alive.
     // If you return instead of waiting the background task will exit.
     twitch_task.await?;
+
+    season_create_task.await?;
 
     // Terminate the signal stream.
     handle.close();

@@ -134,8 +134,7 @@ async fn create_season(
     Ok(())
 }
 
-pub async fn create_next_season(db: &DatabaseConnection) -> Result<seasons::Model> {
-    // get latest season
+pub async fn create_next_season(db: &DatabaseConnection) -> Result<()> {
     let Some(latest_season) = Seasons::find()
         .order_by_desc(seasons::Column::Start)
         .one(db)
@@ -173,7 +172,7 @@ pub async fn create_next_season(db: &DatabaseConnection) -> Result<seasons::Mode
 
     create_season(db, name, start, start + chrono::Duration::days(90)).await?;
 
-    todo!()
+    Ok(())
 }
 
 pub async fn get_fishes(db: &DatabaseConnection, season: &seasons::Model) -> Result<Vec<Fish>> {
