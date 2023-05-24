@@ -4,9 +4,9 @@ use std::{fmt::Display, ops::Range, sync::RwLock};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, FixedOffset, Offset, TimeZone, Utc};
-use database::entities::{accounts, prelude::*, seasons};
+use database::entities::{accounts, fishes_seasons, prelude::*, seasons};
 use eyre::{eyre, Result, WrapErr};
-use log::info;
+use log::{debug, info};
 use rand::Rng;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult,
@@ -200,10 +200,10 @@ async fn create_season(
     name: String,
     start: DateTime<FixedOffset>,
     end: DateTime<FixedOffset>,
-) -> Result<()> {
+) -> Result<i32> {
     info!("Creating season {} ({:?} - {:?})", name, start, end);
 
-    Seasons::insert(seasons::ActiveModel {
+    let season = Seasons::insert(seasons::ActiveModel {
         name: ActiveValue::set(name),
         start: ActiveValue::set(start),
         end: ActiveValue::set(Some(end)),
@@ -212,16 +212,18 @@ async fn create_season(
     .exec(db)
     .await?;
 
-    Ok(())
+    Ok(season.last_insert_id)
 }
 
 pub async fn create_next_season(db: &DatabaseConnection) -> Result<()> {
     let Some(latest_season) = Seasons::find()
-        .order_by_desc(seasons::Column::Start)
+        .order_by_asc(seasons::Column::Start)
         .one(db)
         .await? else {
         return Err(eyre!("No season found"))
     };
+
+    debug!("Latest season: {:?}", latest_season.name);
 
     // handle legacy season
     let start = if latest_season.end.is_none() {
@@ -230,9 +232,21 @@ pub async fn create_next_season(db: &DatabaseConnection) -> Result<()> {
         latest_season.start
     };
 
-    let quarter = YearAndQuarter::from_start(start);
+    let quarter = YearAndQuarter::from_start(start).next();
 
-    create_season(db, quarter.to_string(), quarter.start(), quarter.end()).await?;
+    let new_season_id =
+        create_season(db, quarter.to_string(), quarter.start(), quarter.end()).await?;
+
+    let fishes = FishesSeasons::find()
+        .filter(fishes_seasons::Column::SeasonId.eq(latest_season.id))
+        .all(db)
+        .await?;
+
+    FishesSeasons::insert_many(fishes.into_iter().map(|fish| fishes_seasons::ActiveModel {
+        fish_id: ActiveValue::set(fish.fish_id),
+        season_id: ActiveValue::set(new_season_id),
+        ..Default::default()
+    }));
 
     Ok(())
 }
