@@ -63,24 +63,12 @@ impl MigrationTrait for Migration {
             .create_table(
                 Table::create()
                     .table(FishesSeasons::Table)
-                    // .col(
-                    //     ColumnDef::new(FishesSeasons::Id)
-                    //         .integer()
-                    //         .not_null()
-                    //         .primary_key()
-                    //         .auto_increment(),
-                    // )
-                    .col(
-                        ColumnDef::new(FishesSeasons::FishId)
-                            .integer()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(FishesSeasons::SeasonId)
-                            .integer()
-                            .not_null()
-                            .primary_key(),
+                    .col(ColumnDef::new(FishesSeasons::FishId).integer().not_null())
+                    .col(ColumnDef::new(FishesSeasons::SeasonId).integer().not_null())
+                    .primary_key(
+                        Index::create()
+                            .col(FishesSeasons::FishId)
+                            .col(FishesSeasons::SeasonId),
                     )
                     .foreign_key(
                         ForeignKey::create()
@@ -124,7 +112,6 @@ impl MigrationTrait for Migration {
                 Table::alter()
                     .table(Catches::Table)
                     .drop_column(Catches::SeasonId)
-                    .drop_foreign_key(Alias::new("FK_catches_season_id"))
                     .to_owned(),
             )
             .await?;
@@ -173,7 +160,6 @@ pub enum Seasons {
 #[derive(Iden)]
 pub enum FishesSeasons {
     Table,
-    Id,
     FishId,
     SeasonId,
 }
