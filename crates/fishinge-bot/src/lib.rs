@@ -4,12 +4,12 @@ use std::{fmt::Display, ops::Range, sync::RwLock};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, FixedOffset, Offset, TimeZone, Utc};
-use database::entities::{accounts, fishes, prelude::*, seasons};
+use database::entities::{accounts, prelude::*, seasons};
 use eyre::{eyre, Result, WrapErr};
 use rand::Rng;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult,
-    Linked, ModelTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
+    ModelTrait, QueryFilter, QueryOrder, QuerySelect,
 };
 use twitch_irc::login::{TokenStorage, UserAccessToken};
 
@@ -99,13 +99,56 @@ pub async fn has_next_season(db: &DatabaseConnection) -> Result<bool> {
     Ok(season.is_some())
 }
 
-fn find_subsequent_quarter(start: DateTime<FixedOffset>) -> (i32, Quarter) {
-    match start.month() {
-        1 | 2 | 3 => (start.year(), Quarter::Second),
-        4 | 5 | 6 => (start.year(), Quarter::Third),
-        7 | 8 | 9 => (start.year(), Quarter::Fourth),
-        10 | 11 | 12 => (start.year() + 1, Quarter::First),
-        _ => unreachable!(),
+struct YearAndQuarter {
+    year: i32,
+    quarter: Quarter,
+}
+
+impl YearAndQuarter {
+    pub fn from_start(start: DateTime<FixedOffset>) -> Self {
+        let (year, quarter) = match start.month() {
+            1 | 2 | 3 => (start.year(), Quarter::Second),
+            4 | 5 | 6 => (start.year(), Quarter::Third),
+            7 | 8 | 9 => (start.year(), Quarter::Fourth),
+            10 | 11 | 12 => (start.year() + 1, Quarter::First),
+            _ => unreachable!(),
+        };
+
+        Self { year, quarter }
+    }
+
+    pub fn start(&self) -> DateTime<FixedOffset> {
+        let month = match self.quarter {
+            Quarter::First => 1,
+            Quarter::Second => 4,
+            Quarter::Third => 7,
+            Quarter::Fourth => 10,
+        };
+
+        Utc.with_ymd_and_hms(self.year, month, 1, 12, 0, 0)
+            .unwrap()
+            .with_timezone(&Utc.fix())
+    }
+
+    pub fn next(&self) -> Self {
+        let (year, quarter) = match self.quarter {
+            Quarter::First => (self.year, Quarter::Second),
+            Quarter::Second => (self.year, Quarter::Third),
+            Quarter::Third => (self.year, Quarter::Fourth),
+            Quarter::Fourth => (self.year + 1, Quarter::First),
+        };
+
+        Self { year, quarter }
+    }
+
+    pub fn end(&self) -> DateTime<FixedOffset> {
+        self.next().start()
+    }
+}
+
+impl Display for YearAndQuarter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.year, self.quarter)
     }
 }
 
@@ -114,6 +157,18 @@ enum Quarter {
     Second,
     Third,
     Fourth,
+}
+
+impl Display for Quarter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Quarter::First => "Spring",
+            Quarter::Second => "Summer",
+            Quarter::Third => "Autumn",
+            Quarter::Fourth => "Winter",
+        };
+        write!(f, "{name}")
+    }
 }
 
 async fn create_season(
@@ -142,35 +197,15 @@ pub async fn create_next_season(db: &DatabaseConnection) -> Result<()> {
         return Err(eyre!("No season found"))
     };
 
-    let (year, quarter) = find_subsequent_quarter(latest_season.start);
-    let (name, start) = match quarter {
-        Quarter::First => (
-            format!("Spring {year}"),
-            Utc.with_ymd_and_hms(year, 1, 1, 12, 0, 0)
-                .unwrap()
-                .with_timezone(&Utc.fix()),
-        ),
-        Quarter::Second => (
-            format!("Summer {year}"),
-            Utc.with_ymd_and_hms(year, 4, 1, 12, 0, 0)
-                .unwrap()
-                .with_timezone(&Utc.fix()),
-        ),
-        Quarter::Third => (
-            format!("Autumn {year}"),
-            Utc.with_ymd_and_hms(year, 7, 1, 12, 0, 0)
-                .unwrap()
-                .with_timezone(&Utc.fix()),
-        ),
-        Quarter::Fourth => (
-            format!("Winter {year}"),
-            Utc.with_ymd_and_hms(year, 10, 1, 12, 0, 0)
-                .unwrap()
-                .with_timezone(&Utc.fix()),
-        ),
+    let start = if latest_season.end.is_none() {
+        latest_season.start
+    } else {
+        Utc::now().with_timezone(&Utc.fix())
     };
 
-    create_season(db, name, start, start + chrono::Duration::days(90)).await?;
+    let quarter = YearAndQuarter::from_start(start);
+
+    create_season(db, quarter.to_string(), quarter.start(), quarter.end()).await?;
 
     Ok(())
 }
