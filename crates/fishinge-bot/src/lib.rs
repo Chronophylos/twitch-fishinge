@@ -100,6 +100,7 @@ pub async fn has_next_season(db: &DatabaseConnection) -> Result<bool> {
     Ok(season.is_some())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct YearAndQuarter {
     year: i32,
     quarter: Quarter,
@@ -107,26 +108,25 @@ struct YearAndQuarter {
 
 impl YearAndQuarter {
     pub fn from_start(start: DateTime<FixedOffset>) -> Self {
-        let quarter = match start.month() {
-            1 | 2 | 3 => Quarter::First,
-            4 | 5 | 6 => Quarter::Second,
-            7 | 8 | 9 => Quarter::Third,
-            10 | 11 | 12 => Quarter::Fourth,
+        let year = start.year();
+        let (year, quarter) = match start.month() {
+            12 => (year, Quarter::Winter),
+            1 | 2 => (year - 1, Quarter::Winter),
+            3 | 4 | 5 => (year, Quarter::Spring),
+            6 | 7 | 8 => (year, Quarter::Summer),
+            9 | 10 | 11 => (year, Quarter::Autumn),
             _ => unreachable!(),
         };
 
-        Self {
-            year: start.year(),
-            quarter,
-        }
+        Self { year, quarter }
     }
 
     pub fn start(&self) -> DateTime<FixedOffset> {
         let month = match self.quarter {
-            Quarter::First => 1,
-            Quarter::Second => 4,
-            Quarter::Third => 7,
-            Quarter::Fourth => 10,
+            Quarter::Winter => 1,
+            Quarter::Spring => 4,
+            Quarter::Summer => 7,
+            Quarter::Autumn => 10,
         };
 
         Utc.with_ymd_and_hms(self.year, month, 1, 12, 0, 0)
@@ -136,10 +136,10 @@ impl YearAndQuarter {
 
     pub fn next(&self) -> Self {
         let (year, quarter) = match self.quarter {
-            Quarter::First => (self.year, Quarter::Second),
-            Quarter::Second => (self.year, Quarter::Third),
-            Quarter::Third => (self.year, Quarter::Fourth),
-            Quarter::Fourth => (self.year + 1, Quarter::First),
+            Quarter::Winter => (self.year + 1, Quarter::Spring),
+            Quarter::Spring => (self.year, Quarter::Summer),
+            Quarter::Summer => (self.year, Quarter::Autumn),
+            Quarter::Autumn => (self.year, Quarter::Winter),
         };
 
         Self { year, quarter }
@@ -156,22 +156,42 @@ impl Display for YearAndQuarter {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Quarter {
-    First,
-    Second,
-    Third,
-    Fourth,
+    Winter,
+    Spring,
+    Summer,
+    Autumn,
 }
 
 impl Display for Quarter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
-            Quarter::First => "Spring",
-            Quarter::Second => "Summer",
-            Quarter::Third => "Autumn",
-            Quarter::Fourth => "Winter",
+            Quarter::Winter => "Winter",
+            Quarter::Spring => "Spring",
+            Quarter::Summer => "Summer",
+            Quarter::Autumn => "Autumn",
         };
         write!(f, "{name}")
+    }
+}
+
+#[cfg(test)]
+mod year_and_quarter_tests {
+    use chrono::{DateTime, Offset, Utc};
+
+    use crate::{Quarter, YearAndQuarter};
+
+    #[test]
+    fn test_from_start() {
+        let date = DateTime::parse_from_rfc3339("2020-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc.fix());
+
+        let year_and_quarter = YearAndQuarter::from_start(date);
+
+        assert_eq!(year_and_quarter.year, 2019);
+        assert_eq!(year_and_quarter.quarter, Quarter::Winter);
     }
 }
 
