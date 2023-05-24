@@ -14,21 +14,6 @@ use twitch_irc::login::{TokenStorage, UserAccessToken};
 
 pub static FISH_POPULATION: RwLock<i32> = RwLock::new(0);
 
-#[derive(Debug)]
-pub struct SeasonToFish;
-
-impl Linked for SeasonToFish {
-    type FromEntity = seasons::Entity;
-    type ToEntity = fishes::Entity;
-
-    fn link(&self) -> Vec<sea_orm::LinkDef> {
-        vec![
-            seasons::Relation::FishesSeasons.def().rev(),
-            fishes::Relation::FishesSeasons.def(),
-        ]
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Fish {
     pub id: i32,
@@ -86,8 +71,8 @@ impl Display for Fish {
 
 pub async fn get_active_season(db: &DatabaseConnection) -> Result<seasons::Model> {
     let season = Seasons::find()
-        .filter(seasons::Column::Start.is_not_null())
-        .filter(seasons::Column::End.is_null())
+        .filter(seasons::Column::Start.lt(chrono::Utc::now()))
+        .filter(seasons::Column::End.gt(chrono::Utc::now()))
         .one(db)
         .await
         .wrap_err("Could not fetch seasons")?;
@@ -100,9 +85,7 @@ pub async fn get_active_season(db: &DatabaseConnection) -> Result<seasons::Model
 }
 
 pub async fn get_fishes(db: &DatabaseConnection, season: &seasons::Model) -> Result<Vec<Fish>> {
-    let fishes = season.find_linked(SeasonToFish).all(db).await?;
-
-    dbg!(&fishes);
+    let fishes = season.find_related(Fishes).all(db).await?;
 
     let population = fishes.iter().map(|fish| fish.count).sum();
 
