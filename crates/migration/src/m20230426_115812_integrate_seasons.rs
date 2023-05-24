@@ -6,6 +6,8 @@ use crate::m20220828_125955_create_fishes_table::Fishes;
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
+const LEGACY_SEASON_ID: i32 = 0;
+
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -29,7 +31,7 @@ impl MigrationTrait for Migration {
                     .into_table(Seasons::Table)
                     .columns([Seasons::Id, Seasons::Name, Seasons::Start])
                     .values_panic(vec![
-                        1.into(),
+                        LEGACY_SEASON_ID.into(),
                         "Legacy".into(),
                         Utc.with_ymd_and_hms(2022, 8, 31, 12, 0, 0).unwrap().into(),
                     ])
@@ -45,7 +47,7 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(Catches::SeasonId)
                             .integer()
                             .not_null()
-                            .default(1),
+                            .default(LEGACY_SEASON_ID),
                     )
                     .add_foreign_key(
                         TableForeignKey::new()
@@ -94,7 +96,7 @@ impl MigrationTrait for Migration {
                     .select_from(
                         Query::select()
                             .column(Fishes::Id)
-                            .expr(Expr::val(1))
+                            .expr(Expr::val(LEGACY_SEASON_ID))
                             .from(Fishes::Table)
                             .to_owned(),
                     )
@@ -134,7 +136,7 @@ impl MigrationTrait for Migration {
             .exec_stmt(
                 Query::delete()
                     .from_table(Seasons::Table)
-                    .and_where(Expr::col(Seasons::Id).eq(1))
+                    .and_where(Expr::col(Seasons::Id).eq(LEGACY_SEASON_ID))
                     .to_owned(),
             )
             .await
