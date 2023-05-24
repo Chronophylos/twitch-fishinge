@@ -3,12 +3,13 @@
 use std::{fmt::Display, ops::Range, sync::RwLock};
 
 use async_trait::async_trait;
+use chrono::{DateTime, Datelike, FixedOffset, Offset, TimeZone, Utc};
 use database::entities::{accounts, fishes, prelude::*, seasons};
 use eyre::{eyre, Result, WrapErr};
 use rand::Rng;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult,
-    Linked, ModelTrait, QueryFilter, QuerySelect, RelationTrait,
+    Linked, ModelTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
 };
 use twitch_irc::login::{TokenStorage, UserAccessToken};
 
@@ -82,6 +83,93 @@ pub async fn get_active_season(db: &DatabaseConnection) -> Result<seasons::Model
     } else {
         Err(eyre!("No active season found"))
     }
+}
+
+pub async fn has_next_season(db: &DatabaseConnection) -> Result<bool> {
+    let season = Seasons::find()
+        .filter(seasons::Column::Start.gt(chrono::Utc::now()))
+        .one(db)
+        .await
+        .wrap_err("Could not fetch seasons")?;
+
+    Ok(season.is_some())
+}
+
+fn find_subsequent_quarter(start: DateTime<FixedOffset>) -> (i32, Quarter) {
+    match start.month() {
+        1 | 2 | 3 => (start.year(), Quarter::Second),
+        4 | 5 | 6 => (start.year(), Quarter::Third),
+        7 | 8 | 9 => (start.year(), Quarter::Fourth),
+        10 | 11 | 12 => (start.year() + 1, Quarter::First),
+        _ => unreachable!(),
+    }
+}
+
+enum Quarter {
+    First,
+    Second,
+    Third,
+    Fourth,
+}
+
+async fn create_season(
+    db: &DatabaseConnection,
+    name: String,
+    start: DateTime<FixedOffset>,
+    end: DateTime<FixedOffset>,
+) -> Result<()> {
+    Seasons::insert(seasons::ActiveModel {
+        name: ActiveValue::set(name),
+        start: ActiveValue::set(start),
+        end: ActiveValue::set(Some(end)),
+        ..Default::default()
+    })
+    .exec(db)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn create_next_season(db: &DatabaseConnection) -> Result<seasons::Model> {
+    // get latest season
+    let Some(latest_season) = Seasons::find()
+        .order_by_desc(seasons::Column::Start)
+        .one(db)
+        .await? else {
+        return Err(eyre!("No season found"))
+    };
+
+    let (year, quarter) = find_subsequent_quarter(latest_season.start);
+    let (name, start) = match quarter {
+        Quarter::First => (
+            format!("Spring {year}"),
+            Utc.with_ymd_and_hms(year, 1, 1, 12, 0, 0)
+                .unwrap()
+                .with_timezone(&Utc.fix()),
+        ),
+        Quarter::Second => (
+            format!("Summer {year}"),
+            Utc.with_ymd_and_hms(year, 4, 1, 12, 0, 0)
+                .unwrap()
+                .with_timezone(&Utc.fix()),
+        ),
+        Quarter::Third => (
+            format!("Autumn {year}"),
+            Utc.with_ymd_and_hms(year, 7, 1, 12, 0, 0)
+                .unwrap()
+                .with_timezone(&Utc.fix()),
+        ),
+        Quarter::Fourth => (
+            format!("Winter {year}"),
+            Utc.with_ymd_and_hms(year, 10, 1, 12, 0, 0)
+                .unwrap()
+                .with_timezone(&Utc.fix()),
+        ),
+    };
+
+    create_season(db, name, start, start + chrono::Duration::days(90)).await?;
+
+    todo!()
 }
 
 pub async fn get_fishes(db: &DatabaseConnection, season: &seasons::Model) -> Result<Vec<Fish>> {
