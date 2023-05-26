@@ -4,7 +4,7 @@ use std::{fmt::Display, ops::Range, sync::RwLock};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, FixedOffset, Offset, TimeZone, Utc};
-use database::entities::{accounts, fishes_seasons, prelude::*, seasons};
+use database::entities::{accounts, bundle, prelude::*, seasons};
 use eyre::{eyre, Result, WrapErr};
 use log::{debug, info};
 use rand::Rng;
@@ -200,19 +200,21 @@ async fn create_season(
     name: String,
     start: DateTime<FixedOffset>,
     end: DateTime<FixedOffset>,
-) -> Result<i32> {
+    bundle: bundle::Model,
+) -> Result<()> {
     info!("Creating season {} ({:?} - {:?})", name, start, end);
 
-    let season = Seasons::insert(seasons::ActiveModel {
+    Seasons::insert(seasons::ActiveModel {
         name: ActiveValue::set(name),
         start: ActiveValue::set(start),
         end: ActiveValue::set(Some(end)),
+        bundle_id: ActiveValue::set(bundle.id),
         ..Default::default()
     })
     .exec(db)
     .await?;
 
-    Ok(season.last_insert_id)
+    Ok(())
 }
 
 pub async fn create_next_season(db: &DatabaseConnection) -> Result<()> {
@@ -221,6 +223,9 @@ pub async fn create_next_season(db: &DatabaseConnection) -> Result<()> {
         .one(db)
         .await? else {
         return Err(eyre!("No season found"))
+    };
+    let Some(last_used_bundle) = latest_season.find_related(Bundle).one(db).await? else {
+        return Err(eyre!("No bundle found for season {}", latest_season.name))
     };
 
     debug!("Latest season: {:?}", latest_season.name);
@@ -234,25 +239,24 @@ pub async fn create_next_season(db: &DatabaseConnection) -> Result<()> {
 
     let quarter = YearAndQuarter::from_start(start).next();
 
-    let new_season_id =
-        create_season(db, quarter.to_string(), quarter.start(), quarter.end()).await?;
-
-    let fishes = FishesSeasons::find()
-        .filter(fishes_seasons::Column::SeasonId.eq(latest_season.id))
-        .all(db)
-        .await?;
-
-    FishesSeasons::insert_many(fishes.into_iter().map(|fish| fishes_seasons::ActiveModel {
-        fish_id: ActiveValue::set(fish.fish_id),
-        season_id: ActiveValue::set(new_season_id),
-        ..Default::default()
-    }));
+    create_season(
+        db,
+        quarter.to_string(),
+        quarter.start(),
+        quarter.end(),
+        last_used_bundle,
+    )
+    .await?;
 
     Ok(())
 }
 
 pub async fn get_fishes(db: &DatabaseConnection, season: &seasons::Model) -> Result<Vec<Fish>> {
-    let fishes = season.find_related(Fishes).all(db).await?;
+    let Some(bundle) = season.find_related(Bundle).one(db).await? else {
+        return Err(eyre!("No bundle found for season {}", season.name))
+    };
+
+    let fishes = bundle.find_related(Fishes).all(db).await?;
 
     let population = fishes.iter().map(|fish| fish.count).sum();
 
