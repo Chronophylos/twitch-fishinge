@@ -101,7 +101,7 @@ fn env_var(name: &'static str) -> Result<String, Error> {
 }
 
 async fn run() -> Result<()> {
-    let signals = Signals::new(&[SIGTERM, SIGINT, SIGQUIT]).map_err(Error::Signals)?;
+    let signals = Signals::new([SIGTERM, SIGINT, SIGQUIT]).map_err(Error::Signals)?;
     let quit_signal = Arc::new(Notify::new());
 
     let db = connection().await?;
@@ -110,7 +110,7 @@ async fn run() -> Result<()> {
     migrate(&db).await?;
 
     let season_create_task = tokio::spawn({
-        let db = (&db).clone();
+        let db = (db).clone();
         let quit_signal = quit_signal.clone();
 
         async move {
@@ -145,7 +145,7 @@ async fn run() -> Result<()> {
     let username = env_var("USERNAME")?;
     let client_id = env_var("CLIENT_ID")?;
     let client_secret = env_var("CLIENT_SECRET")?;
-    let account = Account::new((&db).clone(), &username).await?;
+    let account = Account::new(db.clone(), &username).await?;
     let credentials = RefreshingLoginCredentials::init_with_username(
         Some(username),
         client_id,
