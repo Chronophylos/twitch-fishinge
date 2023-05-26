@@ -79,6 +79,7 @@ pub async fn get_active_season(db: &DatabaseConnection) -> Result<seasons::Model
                 .gt(chrono::Utc::now())
                 .or(seasons::Column::End.is_null()),
         )
+        .order_by_desc(seasons::Column::Start)
         .one(db)
         .await
         .wrap_err("Could not fetch seasons")?;
@@ -222,7 +223,7 @@ async fn create_season(
 
 pub async fn create_next_season(db: &DatabaseConnection) -> Result<()> {
     let Some(latest_season) = Seasons::find()
-        .order_by_asc(seasons::Column::Start)
+        .order_by_desc(seasons::Column::Start)
         .one(db)
         .await? else {
         return Err(eyre!("No season found"))
