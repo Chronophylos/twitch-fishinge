@@ -3,21 +3,11 @@ mod db;
 use std::{collections::HashMap, env};
 
 use chrono::{DateTime, Utc};
-use database::{
-    entities::{catches, fishes, prelude::*, users},
-    migrate,
-};
+use database::entities::{catches, fishes, prelude::*, users};
 use db::Db;
 use dotenvy::dotenv;
 use log::{debug, error, warn};
-use rocket::{
-    catch, catchers,
-    fairing::{self, AdHoc},
-    fs::FileServer,
-    get,
-    http::Status,
-    routes, Build, FromForm, Rocket,
-};
+use rocket::{catch, catchers, fs::FileServer, get, http::Status, routes, Build, FromForm, Rocket};
 use rocket_db_pools::{Connection, Database};
 use rocket_dyn_templates::{
     context,
@@ -57,14 +47,6 @@ async fn main() -> Result<(), eyre::Error> {
     Ok(())
 }
 
-async fn run_migrations(rocket: Rocket<Build>) -> fairing::Result {
-    let conn = &Db::fetch(&rocket).unwrap().conn;
-    if let Err(err) = migrate(conn).await {
-        error!("Error migrating database {err}");
-    }
-    Ok(rocket)
-}
-
 fn round<const N: usize>(value: &Value, _args: &HashMap<String, Value>) -> TeraResult<Value> {
     match value {
         Value::Number(n) => {
@@ -89,7 +71,6 @@ fn rocket() -> Result<Rocket<Build>, Error> {
 
     let rocket = rocket::custom(figment)
         .attach(Db::init())
-        .attach(AdHoc::try_on_ignite("Migrations", run_migrations))
         .attach(Template::custom(|engine| {
             engine.tera.register_filter("round1", round::<1>);
             engine.tera.register_filter("round2", round::<2>);
