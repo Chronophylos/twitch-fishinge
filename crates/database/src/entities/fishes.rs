@@ -28,12 +28,12 @@ impl Related<super::catches::Entity> for Entity {
     }
 }
 
-impl Related<super::seasons::Entity> for Entity {
+impl Related<super::bundle::Entity> for Entity {
     fn to() -> RelationDef {
-        super::fishes_seasons::Relation::Seasons.def()
+        super::fish_bundle::Relation::Bundle.def()
     }
     fn via() -> Option<RelationDef> {
-        Some(super::fishes_seasons::Relation::Fishes.def().rev())
+        Some(super::fish_bundle::Relation::Fishes.def().rev())
     }
 }
 

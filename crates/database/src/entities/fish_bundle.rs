@@ -3,13 +3,11 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "seasons")]
+#[sea_orm(table_name = "fish_bundle")]
 pub struct Model {
-    #[sea_orm(primary_key)]
-    pub id: i32,
-    pub name: String,
-    pub start: DateTimeWithTimeZone,
-    pub end: Option<DateTimeWithTimeZone>,
+    #[sea_orm(primary_key, auto_increment = false)]
+    pub fish_id: i32,
+    #[sea_orm(primary_key, auto_increment = false)]
     pub bundle_id: i32,
 }
 
@@ -17,16 +15,20 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::bundle::Entity",
-        from = "Column::Id",
+        from = "Column::BundleId",
         to = "super::bundle::Column::Id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
     Bundle,
-    #[sea_orm(has_many = "super::catches::Entity")]
-    Catches,
-    #[sea_orm(has_many = "super::season_data::Entity")]
-    SeasonData,
+    #[sea_orm(
+        belongs_to = "super::fishes::Entity",
+        from = "Column::FishId",
+        to = "super::fishes::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Fishes,
 }
 
 impl Related<super::bundle::Entity> for Entity {
@@ -35,15 +37,9 @@ impl Related<super::bundle::Entity> for Entity {
     }
 }
 
-impl Related<super::catches::Entity> for Entity {
+impl Related<super::fishes::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Catches.def()
-    }
-}
-
-impl Related<super::season_data::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::SeasonData.def()
+        Relation::Fishes.def()
     }
 }
 
