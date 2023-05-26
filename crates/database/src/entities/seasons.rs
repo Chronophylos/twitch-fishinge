@@ -17,7 +17,7 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::bundle::Entity",
-        from = "Column::Id",
+        from = "Column::BundleId",
         to = "super::bundle::Column::Id",
         on_update = "NoAction",
         on_delete = "NoAction"
