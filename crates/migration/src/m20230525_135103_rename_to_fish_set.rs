@@ -83,7 +83,7 @@ impl MigrationTrait for Migration {
                         TableForeignKey::new()
                             .name("FK_seasons_bundle_id")
                             .from_tbl(Seasons::Table)
-                            .from_col(Seasons::Id)
+                            .from_col(Seasons::BundleId)
                             .to_tbl(Bundle::Table)
                             .to_col(Bundle::Id),
                     )

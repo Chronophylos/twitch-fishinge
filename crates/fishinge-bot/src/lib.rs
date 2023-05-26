@@ -202,7 +202,10 @@ async fn create_season(
     end: DateTime<FixedOffset>,
     bundle: bundle::Model,
 ) -> Result<()> {
-    info!("Creating season {} ({:?} - {:?})", name, start, end);
+    info!(
+        "Creating season {name} ({start:?} - {end:?}) Bundle {}",
+        bundle.id
+    );
 
     Seasons::insert(seasons::ActiveModel {
         name: ActiveValue::set(name),
