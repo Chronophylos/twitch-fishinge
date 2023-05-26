@@ -6,7 +6,7 @@ pub struct Migration;
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        // create set table
+        // create bundle table
         manager
             .create_table(
                 Table::create()
@@ -19,6 +19,17 @@ impl MigrationTrait for Migration {
                             .integer(),
                     )
                     .take(),
+            )
+            .await?;
+
+        // create empty bundle
+        manager
+            .exec_stmt(
+                Query::insert()
+                    .into_table(Bundle::Table)
+                    .columns([Bundle::Id])
+                    .values_panic(vec![0.into()])
+                    .to_owned(),
             )
             .await?;
 
@@ -54,17 +65,6 @@ impl MigrationTrait for Migration {
                             .to_col(Bundle::Id),
                     )
                     .take(),
-            )
-            .await?;
-
-        // create empty bundle
-        manager
-            .exec_stmt(
-                Query::insert()
-                    .into_table(Bundle::Table)
-                    .columns([Bundle::Id])
-                    .values_panic(vec![0.into()])
-                    .to_owned(),
             )
             .await?;
 
@@ -106,16 +106,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // revert create empty bundle
-        manager
-            .exec_stmt(
-                Query::delete()
-                    .from_table(Bundle::Table)
-                    .and_where(Expr::col(Bundle::Id).eq(0))
-                    .to_owned(),
-            )
-            .await?;
-
         // revert rename fishset.season_id to set_id and make it a foreign key
         manager
             .alter_table(
@@ -147,6 +137,16 @@ impl MigrationTrait for Migration {
             .rename_table(
                 Table::rename()
                     .table(FishBundle::Table, FishesSeasons::Table)
+                    .to_owned(),
+            )
+            .await?;
+
+        // revert create empty bundle
+        manager
+            .exec_stmt(
+                Query::delete()
+                    .from_table(Bundle::Table)
+                    .and_where(Expr::col(Bundle::Id).eq(0))
                     .to_owned(),
             )
             .await?;
