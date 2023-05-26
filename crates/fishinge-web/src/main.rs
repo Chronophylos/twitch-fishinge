@@ -25,8 +25,8 @@ use rocket_dyn_templates::{
     Template,
 };
 use sea_orm::{
-    ColumnTrait, DeriveColumn, EntityTrait, EnumIter, FromQueryResult, IdenStatic, JoinType,
-    QueryFilter, QueryOrder, QuerySelect, RelationTrait,
+    ColumnTrait, DeriveColumn, EntityTrait, EnumIter, FromQueryResult, JoinType, QueryFilter,
+    QueryOrder, QuerySelect, RelationTrait,
 };
 use serde::Serialize;
 

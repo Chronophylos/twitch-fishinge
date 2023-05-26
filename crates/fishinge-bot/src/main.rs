@@ -305,8 +305,11 @@ async fn handle_privmsg(
                         .trim_start_matches('@')
                         .to_lowercase();
 
-                    let epoch =
-                        DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(61, 0), Utc).into();
+                    let epoch = DateTime::<Utc>::from_utc(
+                        NaiveDateTime::from_timestamp_opt(61, 0).unwrap(),
+                        Utc,
+                    )
+                    .into();
 
                     let user = users::ActiveModel {
                         name: ActiveValue::set(target.to_string()),
