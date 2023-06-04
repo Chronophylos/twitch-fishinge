@@ -426,6 +426,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "bot-framework"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "database",
+ "log",
+ "miette",
+ "sea-orm",
+ "signal-hook",
+ "signal-hook-tokio",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "twitch-irc 5.0.0",
+]
+
+[[package]]
 name = "bstr"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3106,6 +3123,7 @@ name = "supinic-fish-bot"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bot-framework",
  "database",
  "dotenvy",
  "futures",

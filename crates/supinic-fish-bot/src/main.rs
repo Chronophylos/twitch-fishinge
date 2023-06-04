@@ -1,7 +1,7 @@
+use bot_framework::runner::{start_bot, Client};
 use futures::future::FutureExt;
 use miette::{Result, WrapErr};
 use sea_orm::DatabaseConnection;
-use supinic_fish_bot::bot_runner::{start_bot, Client};
 use twitch_irc::message::ServerMessage;
 
 #[tokio::main]
