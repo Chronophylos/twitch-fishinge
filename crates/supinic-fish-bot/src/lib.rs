@@ -1,8 +1,11 @@
 use std::time::Duration;
 
-use miette::{Diagnostic, Result};
+use bot_framework::runner::Client;
+use miette::{Diagnostic, IntoDiagnostic, Result, WrapErr};
 use once_cell::sync::Lazy;
 use regex::Regex;
+use sea_orm::DatabaseConnection;
+use twitch_irc::message::ServerMessage;
 
 const FISH_RESPONSE_COOLDOWN_PREFIX: &str = "Hol' up partner! You can go fishing again in ";
 static FISH_RESPONSE_COOLDOWN_REGEX: Lazy<Regex> = Lazy::new(|| {
@@ -16,6 +19,7 @@ const FISH_RESPONSE_FAILURE_PREFIX: &str = "No luck..";
 static FISH_RESPONSE_FAILURE_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"No luck\.{3} \D+ (You reel out a (?P<junk>.)|(?P<distance>\d+) cm away\.) \(((?P<minutes>\d+)m, )?((?P<seconds>\d+)s )cooldown\)( This is your attempt #(?P<attempt>\d+) since your last catch\.)?"#).unwrap()
 });
+const BOT_LOGIN: &str = "supinic";
 
 #[derive(Debug, thiserror::Error, Diagnostic, PartialEq)]
 pub enum Error {
@@ -26,6 +30,31 @@ pub enum Error {
     #[error("unknown bot response: {0:?}")]
     #[diagnostic(code(supinic_fish_bot::unknown_response))]
     UnknownResponse(String),
+}
+
+pub async fn handle_server_message(
+    _conn: DatabaseConnection,
+    _client: Client,
+    message: ServerMessage,
+    tx: tokio::sync::mpsc::Sender<String>,
+) -> Result<()> {
+    match message {
+        ServerMessage::Privmsg(msg) => {
+            if msg.sender.login == BOT_LOGIN {
+                tx.send(msg.message_text.to_string())
+                    .await
+                    .into_diagnostic()
+                    .wrap_err("failed to pass message to main task")?;
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+pub async fn run(rx: tokio::sync::mpsc::Receiver<String>) -> Result<(), Error> {
+    todo!()
 }
 
 #[derive(Debug, PartialEq)]

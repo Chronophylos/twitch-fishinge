@@ -1,24 +1,44 @@
-use bot_framework::runner::{start_bot, Client};
+use std::collections::HashSet;
+
+use bot_framework::runner::{start_bot, Client, Config};
 use futures::future::FutureExt;
-use miette::{Result, WrapErr};
+use miette::{IntoDiagnostic, Result, WrapErr};
 use sea_orm::DatabaseConnection;
+use supinic_fish_bot::{handle_server_message, run};
 use twitch_irc::message::ServerMessage;
+
+#[inline]
+fn env_var(name: &'static str) -> Result<String> {
+    std::env::var(name)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("env var {name} is not set"))
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     pretty_env_logger::init_timed();
     dotenvy::dotenv().ok();
 
-    let closure = |conn: DatabaseConnection, client: Client, message: ServerMessage| {
-        handle_server_message(conn, client, message).boxed()
-    };
-    start_bot(closure).await.wrap_err("failed to run bot")
-}
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    tokio::spawn(async move {
+        run(rx).await.unwrap();
+    });
 
-async fn handle_server_message(
-    _conn: DatabaseConnection,
-    _client: Client,
-    _message: ServerMessage,
-) -> Result<()> {
-    Ok(())
+    let wanted_channel = env_var("CHANNEL")?;
+    let username = env_var("USERNAME")?;
+    let client_id = env_var("CLIENT_ID")?;
+    let client_secret = env_var("CLIENT_SECRET")?;
+    let config = Config {
+        wanted_channels: vec![wanted_channel].into_iter().collect::<HashSet<_>>(),
+        username,
+        client_id,
+        client_secret,
+    };
+
+    let closure = move |conn: DatabaseConnection, client: Client, message: ServerMessage| {
+        handle_server_message(conn, client, message, tx.clone()).boxed()
+    };
+    start_bot(config, closure)
+        .await
+        .wrap_err("failed to run bot")
 }

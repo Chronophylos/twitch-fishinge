@@ -27,13 +27,6 @@ pub enum Error {
     #[diagnostic(code(bot_runner::connect_database))]
     ConnectDatabase(#[source] database::Error),
 
-    #[error("env var {name} is not set")]
-    #[diagnostic(code(bot_runner::env_var_not_set))]
-    EnvVarNotSet {
-        source: std::env::VarError,
-        name: &'static str,
-    },
-
     #[error("could not get account")]
     #[diagnostic(code(bot_runner::get_account))]
     GetAccount(#[source] account::Error),
@@ -51,7 +44,15 @@ pub enum Error {
     SignalsTask(#[source] tokio::task::JoinError),
 }
 
-pub async fn start_bot<F>(handle_server_message: F) -> Result<()>
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub wanted_channels: HashSet<String>,
+    pub username: String,
+    pub client_id: String,
+    pub client_secret: String,
+}
+
+pub async fn start_bot<F>(config: Config, handle_server_message: F) -> Result<()>
 where
     F: Fn(
             DatabaseConnection,
@@ -67,13 +68,7 @@ where
     info!("Connecting to database");
     let conn = connection().await.map_err(Error::ConnectDatabase)?;
 
-    let wanted_channels = env_var("CHANNELS")?
-        .split(',')
-        .map(|channel| channel.trim().to_string())
-        .collect::<HashSet<_>>();
-
-    let twitch_task =
-        start_twitch_bot(conn.clone(), wanted_channels, quit, handle_server_message).await?;
+    let twitch_task = start_twitch_bot(conn.clone(), config, quit, handle_server_message).await?;
 
     // keep the tokio executor alive.
     // If you return instead of waiting the background task will exit.
@@ -100,7 +95,7 @@ fn register_signals() -> Result<(Arc<Notify>, signal_hook_tokio::Handle, JoinHan
 
 async fn start_twitch_bot<F>(
     conn: DatabaseConnection,
-    wanted_channels: HashSet<String>,
+    bot_config: Config,
     quit: Arc<Notify>,
     handle_server_message: F,
 ) -> Result<JoinHandle<()>, Error>
@@ -116,8 +111,15 @@ where
 {
     info!("Creating twitch client");
 
-    let config = create_client_config(&conn).await?;
-    let (mut incoming_messages, client) = Client::new(config);
+    let Config {
+        wanted_channels,
+        username,
+        client_id,
+        client_secret,
+    } = bot_config;
+
+    let client_config = create_client_config(&conn, username, client_id, client_secret).await?;
+    let (mut incoming_messages, client) = Client::new(client_config);
 
     let twitch_task = tokio::spawn({
         let client = client.clone();
@@ -162,11 +164,10 @@ where
 
 async fn create_client_config(
     conn: &DatabaseConnection,
+    username: String,
+    client_id: String,
+    client_secret: String,
 ) -> Result<ClientConfig<RefreshingLoginCredentials<Account>>, Error> {
-    let username = env_var("USERNAME")?;
-    let client_id = env_var("CLIENT_ID")?;
-    let client_secret = env_var("CLIENT_SECRET")?;
-
     info!("creating client config for {username}");
 
     let account = Account::new(conn.clone(), &username)
@@ -181,11 +182,6 @@ async fn create_client_config(
     let config = ClientConfig::new_simple(credentials);
 
     Ok(config)
-}
-
-#[inline]
-fn env_var(name: &'static str) -> Result<String, Error> {
-    std::env::var(name).map_err(|source| Error::EnvVarNotSet { source, name })
 }
 
 async fn handle_signals(mut signals: Signals, quit_signal: Arc<Notify>) {
