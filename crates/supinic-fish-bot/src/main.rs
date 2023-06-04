@@ -20,9 +20,6 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
     let (tx, rx) = tokio::sync::mpsc::channel(1);
-    tokio::spawn(async move {
-        run(rx).await.unwrap();
-    });
 
     let wanted_channel = env_var("CHANNEL")?;
     let username = env_var("USERNAME")?;
@@ -35,10 +32,13 @@ async fn main() -> Result<()> {
         client_secret,
     };
 
-    let closure = move |conn: DatabaseConnection, client: Client, message: ServerMessage| {
-        handle_server_message(conn, client, message, tx.clone()).boxed()
-    };
-    start_bot(config, closure)
-        .await
-        .wrap_err("failed to run bot")
+    start_bot(
+        config,
+        move |conn: DatabaseConnection, client: Client| run(conn, client, rx).boxed(),
+        move |conn: DatabaseConnection, client: Client, message: ServerMessage| {
+            handle_server_message(conn, client, message, tx.clone()).boxed()
+        },
+    )
+    .await
+    .wrap_err("failed to run bot")
 }

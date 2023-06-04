@@ -53,7 +53,11 @@ pub async fn handle_server_message(
     Ok(())
 }
 
-pub async fn run(rx: tokio::sync::mpsc::Receiver<String>) -> Result<(), Error> {
+pub async fn run(
+    _conn: DatabaseConnection,
+    _client: Client,
+    rx: tokio::sync::mpsc::Receiver<String>,
+) -> Result<()> {
     todo!()
 }
 

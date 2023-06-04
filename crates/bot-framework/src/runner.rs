@@ -39,6 +39,10 @@ pub enum Error {
     #[diagnostic(code(bot_runner::twitch_task))]
     TwitchTask(#[source] tokio::task::JoinError),
 
+    #[error("failed to run init task")]
+    #[diagnostic(code(bot_runner::init_task))]
+    InitTask(#[source] tokio::task::JoinError),
+
     #[error("failed to run signals task")]
     #[diagnostic(code(bot_runner::signals_task))]
     SignalsTask(#[source] tokio::task::JoinError),
@@ -52,9 +56,15 @@ pub struct Config {
     pub client_secret: String,
 }
 
-pub async fn start_bot<F>(config: Config, handle_server_message: F) -> Result<()>
+pub async fn start_bot<I, H>(config: Config, init: I, handle_server_message: H) -> Result<()>
 where
-    F: Fn(
+    I: FnOnce(
+            DatabaseConnection,
+            Client,
+        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>
+        + Send
+        + 'static,
+    H: Fn(
             DatabaseConnection,
             Client,
             ServerMessage,
@@ -68,11 +78,7 @@ where
     info!("Connecting to database");
     let conn = connection().await.map_err(Error::ConnectDatabase)?;
 
-    let twitch_task = start_twitch_bot(conn.clone(), config, quit, handle_server_message).await?;
-
-    // keep the tokio executor alive.
-    // If you return instead of waiting the background task will exit.
-    twitch_task.await.map_err(Error::TwitchTask)?;
+    start_twitch_bot(conn.clone(), config, quit, init, handle_server_message).await?;
 
     // Terminate the signal stream.
     quit_handle.close();
@@ -93,14 +99,21 @@ fn register_signals() -> Result<(Arc<Notify>, signal_hook_tokio::Handle, JoinHan
     Ok((notify, handle, task))
 }
 
-async fn start_twitch_bot<F>(
+async fn start_twitch_bot<I, H>(
     conn: DatabaseConnection,
     bot_config: Config,
     quit: Arc<Notify>,
-    handle_server_message: F,
-) -> Result<JoinHandle<()>, Error>
+    init: I,
+    handle_server_message: H,
+) -> Result<(), Error>
 where
-    F: Fn(
+    I: FnOnce(
+            DatabaseConnection,
+            Client,
+        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>
+        + Send
+        + 'static,
+    H: Fn(
             DatabaseConnection,
             Client,
             ServerMessage,
@@ -120,6 +133,17 @@ where
 
     let client_config = create_client_config(&conn, username, client_id, client_secret).await?;
     let (mut incoming_messages, client) = Client::new(client_config);
+
+    let init_task = tokio::spawn({
+        let conn = conn.clone();
+        let client = client.clone();
+
+        async move {
+            if let Err(err) = init(conn, client).await {
+                error!("Error initializing bot: {err}");
+            }
+        }
+    });
 
     let twitch_task = tokio::spawn({
         let client = client.clone();
@@ -159,7 +183,10 @@ where
         .set_wanted_channels(wanted_channels)
         .map_err(Error::SetWantedChannels)?;
 
-    Ok(twitch_task)
+    twitch_task.await.map_err(Error::TwitchTask)?;
+    init_task.await.map_err(Error::InitTask)?;
+
+    Ok(())
 }
 
 async fn create_client_config(
