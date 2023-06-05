@@ -130,7 +130,8 @@ async fn run(client: Client, channel: String, mut rx: Receiver<Message>) -> Resu
             }
         }
 
-        let cooldown = response.cooldown + Duration::from_secs(1);
+        let cooldown = (response.cooldown + Duration::from_secs(1))
+            .clamp(Duration::from_secs(5), Duration::from_secs(60 * 60 * 24));
 
         info!("sleeping for {cooldown:?}");
         tokio::time::sleep(cooldown).await;
