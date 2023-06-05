@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
         wanted_channels: vec![wanted_channel.clone()]
             .into_iter()
             .collect::<HashSet<_>>(),
-        username,
+        username: username.clone(),
         client_id,
         client_secret,
     };
@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
             run_wrapper(conn, client, wanted_channel, rx).boxed()
         },
         move |conn: DatabaseConnection, client: Client, message: ServerMessage| {
-            handle_server_message(conn, client, message, tx.clone()).boxed()
+            handle_server_message(conn, client, message, username.clone(), tx.clone()).boxed()
         },
     )
     .await
