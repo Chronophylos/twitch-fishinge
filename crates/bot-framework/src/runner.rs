@@ -1,7 +1,7 @@
 use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
 
 use database::connection;
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use miette::{Diagnostic, Result};
 use sea_orm::DatabaseConnection;
 use signal_hook::consts::signal::{SIGINT, SIGQUIT, SIGTERM};
@@ -135,31 +135,33 @@ where
     let client_config = create_client_config(&conn, username, client_id, client_secret).await?;
     let (mut incoming_messages, client) = Client::new(client_config);
 
+    info!("Spawning init task");
     let init_task = tokio::spawn({
         let conn = conn.clone();
         let client = client.clone();
 
         async move {
+            debug!("Running init task");
             if let Err(err) = init(conn, client).await {
                 error!("Error initializing bot: {err}");
             }
         }
     });
 
+    info!("Spawning twitch task");
     let twitch_task = tokio::spawn({
         let client = client.clone();
 
         async move {
+            debug!("Starting message handler loop");
             loop {
                 select! {
-                    maybe_message = incoming_messages.recv() => {
-                        if let Some(message) = maybe_message {
-                            if let Err(err) = handle_server_message(conn.clone(), client.clone(), message).await {
-                                error!("Error handling message: {err}");
-                            }
-
-                        } else {
+                    channel_value = incoming_messages.recv() => {
+                        let Some(message) = channel_value else {
                             break;
+                        };
+                        if let Err(err) = handle_server_message(conn.clone(), client.clone(), message).await {
+                            error!("Error handling message: {err}");
                         }
                     }
                     _ = quit.notified() => {
@@ -184,6 +186,7 @@ where
         .set_wanted_channels(wanted_channels)
         .map_err(Error::SetWantedChannels)?;
 
+    trace!("Waiting for twitch task and init task to finish");
     twitch_task.await.map_err(Error::TwitchTask)?;
     init_task.await.map_err(Error::InitTask)?;
 
@@ -196,7 +199,7 @@ async fn create_client_config(
     client_id: String,
     client_secret: String,
 ) -> Result<ClientConfig<RefreshingLoginCredentials<Account>>, Error> {
-    info!("creating client config for {username}");
+    info!("Creating client config for {username}");
 
     let account = Account::new(conn.clone(), &username)
         .await

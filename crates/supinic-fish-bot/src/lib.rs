@@ -6,7 +6,7 @@ use miette::{Diagnostic, IntoDiagnostic, Result, WrapErr};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use sea_orm::DatabaseConnection;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender};
 use twitch_irc::message::ServerMessage;
 
 const FISH_RESPONSE_COOLDOWN_PREFIX: &str = "Hol' up partner! You can go fishing again in ";
@@ -21,7 +21,7 @@ const FISH_RESPONSE_FAILURE_PREFIX: &str = "No luck..";
 static FISH_RESPONSE_FAILURE_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"No luck\.{3} \D+ (You reel out a (?P<junk>.)|(?P<distance>\d+) cm away\.) \(((?P<minutes>\d+)m, )?((?P<seconds>\d+)s )cooldown\)( This is your attempt #(?P<attempt>\d+) since your last catch\.)?"#).unwrap()
 });
-const BOT_LOGIN: &str = "supinic";
+const BOT_LOGIN: &str = "supibot";
 
 #[derive(Debug, thiserror::Error, Diagnostic)]
 pub enum Error {
@@ -42,23 +42,33 @@ pub enum Error {
     ChannelClosed,
 }
 
+#[derive(Debug)]
+pub enum Message {
+    Bot(String),
+    Ready,
+}
+
 pub async fn handle_server_message(
     _conn: DatabaseConnection,
     _client: Client,
-    message: ServerMessage,
-    tx: tokio::sync::mpsc::Sender<String>,
+    server_message: ServerMessage,
+    tx: Sender<Message>,
 ) -> Result<()> {
-    match message {
-        ServerMessage::Privmsg(msg) => {
-            if msg.sender.login == BOT_LOGIN {
-                tx.send(msg.message_text.to_string())
-                    .await
-                    .into_diagnostic()
-                    .wrap_err("failed to pass message to main task")?;
-            }
+    trace!("handling message: {:?}", server_message);
+
+    let message = match server_message {
+        ServerMessage::GlobalUserState(_) => Message::Ready,
+        ServerMessage::Privmsg(msg) if msg.sender.login == BOT_LOGIN => {
+            Message::Bot(msg.message_text.to_string())
         }
-        _ => {}
-    }
+        _ => return Ok(()),
+    };
+
+    trace!("passing message to main task: {message:?}");
+    tx.send(message)
+        .await
+        .into_diagnostic()
+        .wrap_err("failed to pass message to main task")?;
 
     Ok(())
 }
@@ -67,7 +77,7 @@ pub async fn run_wrapper(
     _conn: DatabaseConnection,
     client: Client,
     channel: String,
-    rx: Receiver<String>,
+    rx: Receiver<Message>,
 ) -> Result<()> {
     tokio::spawn(async move {
         if let Err(e) = run(client, channel, rx).await {
@@ -78,18 +88,31 @@ pub async fn run_wrapper(
     Ok(())
 }
 
-async fn run(client: Client, channel: String, mut rx: Receiver<String>) -> Result<(), Error> {
+async fn run(client: Client, channel: String, mut rx: Receiver<Message>) -> Result<(), Error> {
+    info!("Starting fish bot");
+
+    // wait for ready message
+    debug!("waiting for twitch to be ready");
     loop {
+        match rx.recv().await {
+            Some(Message::Ready) => break,
+            Some(_) => {}
+            None => {
+                return Err(Error::ChannelClosed);
+            }
+        }
+    }
+
+    loop {
+        debug!("sending $fish");
         client
             .say(channel.clone(), "$fish".to_string())
             .await
             .map_err(Error::SendMessage)?;
 
-        // TODO: handle timeout
-        let Some(message) = rx.recv().await else {
-            return Err(Error::ChannelClosed);
-        };
+        let message = wait_for_bot_message(&mut rx).await?;
 
+        debug!("parsing response");
         let response = match FishResponse::parse(&message) {
             Ok(response) => response,
             Err(e) => {
@@ -126,16 +149,33 @@ async fn run(client: Client, channel: String, mut rx: Receiver<String>) -> Resul
     }
 }
 
-async fn sell_all(client: Client, rx: &mut Receiver<String>, channel: String) -> Result<(), Error> {
+async fn wait_for_bot_message(rx: &mut Receiver<Message>) -> Result<String, Error> {
+    // TODO: handle timeout
+    debug!("waiting for response");
+    loop {
+        match rx.recv().await {
+            Some(Message::Bot(message)) => return Ok(message),
+            Some(_) => {}
+            None => {
+                return Err(Error::ChannelClosed);
+            }
+        }
+    }
+}
+
+async fn sell_all(
+    client: Client,
+    rx: &mut Receiver<Message>,
+    channel: String,
+) -> Result<(), Error> {
+    debug!("sending $fish sell all");
+
     client
         .say(channel, "$fish sell all".to_string())
         .await
         .map_err(Error::SendMessage)?;
 
-    // TODO: handle timeout
-    let Some(message) = rx.recv().await else {
-        return Err(Error::ChannelClosed);
-    };
+    let message = wait_for_bot_message(rx).await?;
 
     // TODO: parse sell response
     dbg!(message);
