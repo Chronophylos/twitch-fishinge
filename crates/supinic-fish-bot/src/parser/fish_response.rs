@@ -6,7 +6,7 @@ use regex::Regex;
 
 const FISH_RESPONSE_COOLDOWN_PREFIX: &str = "Hol' up partner! You can go fishing again in ";
 static FISH_RESPONSE_COOLDOWN_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"Hol' up partner! You can go fishing again in (?P<cooldown>[0-9\.]+)s!"#).unwrap()
+    Regex::new(r#"Hol' up partner! You can go fishing again in ((?P<minutes>[0-9]+)m, )?((?P<seconds>[0-9\.]+)s|(?P<milliseconds>[0-9]+)ms)!"#).unwrap()
 });
 const FISH_RESPONSE_SUCCESS_PREFIX: &str = "You caught a ✨ ";
 static FISH_RESPONSE_SUCCESS_REGEX: Lazy<Regex> = Lazy::new(|| {
@@ -136,17 +136,26 @@ impl FishResponse {
                 })
             },
             |captures| {
-                let cooldown = captures
-                    .name("cooldown")
-                    .unwrap()
-                    .as_str()
-                    .parse::<f64>()
-                    .unwrap();
+                let minutes = captures
+                    .name("minutes")
+                    .map(|m| m.as_str().parse::<u64>().unwrap())
+                    .map(|m| Duration::from_secs(m * 60))
+                    .unwrap_or(Duration::ZERO);
+                let seconds = captures
+                    .name("seconds")
+                    .map(|m| m.as_str().parse::<f32>().unwrap())
+                    .map(|s| Duration::from_secs_f32(s))
+                    .unwrap_or(Duration::ZERO);
+                let milliseconds = captures
+                    .name("milliseconds")
+                    .map(|m| m.as_str().parse::<u64>().unwrap())
+                    .map(|ms| Duration::from_millis(ms))
+                    .unwrap_or(Duration::ZERO);
 
                 Ok(Self {
                     name,
                     kind: FishResponseKind::Cooldown,
-                    cooldown: Duration::from_secs_f64(cooldown),
+                    cooldown: minutes + seconds + milliseconds,
                 })
             },
         )

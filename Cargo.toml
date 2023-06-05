@@ -7,6 +7,3 @@ members = ["crates/*"]
 strip = true 
 opt-level = "z"
 lto = true
-
-[profile.dev.package.sqlx-macros]
-opt-level = 3

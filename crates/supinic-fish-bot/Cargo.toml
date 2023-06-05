@@ -7,10 +7,10 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.68"
-backoff = { version = "0.4.0", features = ["tokio"] }
 bot-framework = { version = "0.1.0", path = "../bot-framework" }
 database = { version = "0.1.0", path = "../database" }
 dotenvy = "0.15.7"
+exponential-backoff = "1.2.0"
 futures = "0.3.28"
 log = "0.4.18"
 miette = { version = "5.9.0", features = ["fancy"] }

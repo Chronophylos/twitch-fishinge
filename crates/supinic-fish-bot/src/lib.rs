@@ -2,9 +2,8 @@ mod parser;
 
 use std::time::Duration;
 
-use crate::parser::fish_response::{FishResponse, FishResponseKind};
-use backoff::backoff::Backoff;
 use bot_framework::runner::{Client, IrcError};
+use exponential_backoff::Backoff;
 use log::{debug, error, info, trace};
 use miette::{Diagnostic, IntoDiagnostic, Result, WrapErr};
 use sea_orm::DatabaseConnection;
@@ -13,6 +12,8 @@ use tokio::{
     time::timeout,
 };
 use twitch_irc::message::ServerMessage;
+
+use crate::parser::fish_response::{FishResponse, FishResponseKind};
 
 const BOT_LOGIN: &str = "supibot";
 
@@ -102,7 +103,8 @@ async fn run(client: Client, channel: String, mut rx: Receiver<Message>) -> Resu
         let response = match FishResponse::parse(&message) {
             Ok(response) => response,
             Err(err) => {
-                error!("failed to parse fish response: {err}");
+                error!("failed to parse fish response from {message}: {err}");
+                tokio::time::sleep(Duration::from_secs_f32(5.2)).await;
                 continue;
             }
         };
@@ -113,6 +115,7 @@ async fn run(client: Client, channel: String, mut rx: Receiver<Message>) -> Resu
             FishResponseKind::Success { catch, length } => {
                 trace!("caught fish: {catch} @ {length} cm");
 
+                tokio::time::sleep(Duration::from_secs_f32(5.2)).await;
                 sell(&client, &mut rx, channel.clone(), &catch).await?;
             }
             FishResponseKind::Failure {
@@ -120,6 +123,7 @@ async fn run(client: Client, channel: String, mut rx: Receiver<Message>) -> Resu
             } => {
                 trace!("caught junk: {junk}");
 
+                tokio::time::sleep(Duration::from_secs_f32(5.2)).await;
                 sell(&client, &mut rx, channel.clone(), &junk).await?;
             }
             FishResponseKind::Failure { .. } => {
@@ -130,8 +134,10 @@ async fn run(client: Client, channel: String, mut rx: Receiver<Message>) -> Resu
             }
         }
 
-        let cooldown = (response.cooldown + Duration::from_secs(1))
-            .clamp(Duration::from_secs(5), Duration::from_secs(60 * 60 * 24));
+        let cooldown = response.cooldown.clamp(
+            Duration::from_secs_f32(5.2),
+            Duration::from_secs(60 * 60 * 24),
+        );
 
         info!("sleeping for {cooldown:?}");
         tokio::time::sleep(cooldown).await;
@@ -146,32 +152,22 @@ async fn send_command(
 ) -> Result<String, Error> {
     debug!("sending command: {command}");
 
-    client
-        .say(channel, command)
-        .await
-        .map_err(Error::SendMessage)?;
+    let backoff = Backoff::new(3, Duration::from_secs_f32(5.2), Duration::from_secs(30));
 
-    let message = wait_for_bot_message(rx).await?;
+    for duration in &backoff {
+        client
+            .say(channel.clone(), command.clone())
+            .await
+            .map_err(Error::SendMessage)?;
 
-    Ok(message)
-}
-
-async fn wait_for_bot_message(rx: &mut Receiver<Message>) -> Result<String, Error> {
-    // TODO: handle timeout
-    debug!("waiting for response");
-
-    let mut exponential_backoff = backoff::ExponentialBackoff {
-        initial_interval: Duration::from_secs(6),
-        max_elapsed_time: Some(Duration::from_secs(30)),
-        ..Default::default()
-    };
-
-    while let Some(duration) = exponential_backoff.next_backoff() {
-        match timeout(duration, rx.recv()).await {
+        // wait for response
+        match timeout(Duration::from_secs(3), rx.recv()).await {
             Ok(Some(Message::Bot(message))) => return Ok(message),
             Ok(None) => return Err(Error::ChannelClosed),
             _ => {}
         }
+
+        tokio::time::sleep(duration).await;
     }
 
     Err(Error::ReceiveMessageTimeout)
@@ -183,9 +179,7 @@ async fn sell(
     channel: String,
     what: &str,
 ) -> Result<(), Error> {
-    send_command(client, rx, channel, format!("$fish sell {what}")).await?;
-
-    let message = wait_for_bot_message(rx).await?;
+    let message = send_command(client, rx, channel, format!("$fish sell {what}")).await?;
 
     // TODO: parse sell response
     dbg!(message);
