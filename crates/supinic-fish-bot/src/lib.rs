@@ -3,11 +3,15 @@ mod parser;
 use std::time::Duration;
 
 use crate::parser::fish_response::{FishResponse, FishResponseKind};
+use backoff::backoff::Backoff;
 use bot_framework::runner::{Client, IrcError};
-use log::{debug, info, trace, warn};
+use log::{debug, error, info, trace};
 use miette::{Diagnostic, IntoDiagnostic, Result, WrapErr};
 use sea_orm::DatabaseConnection;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::{
+    sync::mpsc::{Receiver, Sender},
+    time::timeout,
+};
 use twitch_irc::message::ServerMessage;
 
 const BOT_LOGIN: &str = "supibot";
@@ -21,6 +25,10 @@ pub enum Error {
     #[error("channel closed")]
     #[diagnostic(code(supinic_fish_bot::channel_closed))]
     ChannelClosed,
+
+    #[error("timed out waiting for response")]
+    #[diagnostic(code(supinic_fish_bot::receive_message_timeout))]
+    ReceiveMessageTimeout,
 }
 
 #[derive(Debug)]
@@ -93,8 +101,8 @@ async fn run(client: Client, channel: String, mut rx: Receiver<Message>) -> Resu
         debug!("parsing response");
         let response = match FishResponse::parse(&message) {
             Ok(response) => response,
-            Err(e) => {
-                warn!("failed to parse fish response: {}", e);
+            Err(err) => {
+                error!("failed to parse fish response: {err}");
                 continue;
             }
         };
@@ -150,15 +158,22 @@ async fn send_command(
 async fn wait_for_bot_message(rx: &mut Receiver<Message>) -> Result<String, Error> {
     // TODO: handle timeout
     debug!("waiting for response");
-    loop {
-        match rx.recv().await {
-            Some(Message::Bot(message)) => return Ok(message),
-            Some(_) => {}
-            None => {
-                return Err(Error::ChannelClosed);
-            }
+
+    let mut exponential_backoff = backoff::ExponentialBackoff {
+        initial_interval: Duration::from_secs(6),
+        max_elapsed_time: Some(Duration::from_secs(30)),
+        ..Default::default()
+    };
+
+    while let Some(duration) = exponential_backoff.next_backoff() {
+        match timeout(duration, rx.recv()).await {
+            Ok(Some(Message::Bot(message))) => return Ok(message),
+            Ok(None) => return Err(Error::ChannelClosed),
+            _ => {}
         }
     }
+
+    Err(Error::ReceiveMessageTimeout)
 }
 
 async fn sell(
