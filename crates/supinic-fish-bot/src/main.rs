@@ -4,7 +4,7 @@ use bot_framework::runner::{start_bot, Client, Config};
 use futures::future::FutureExt;
 use miette::{IntoDiagnostic, Result, WrapErr};
 use sea_orm::DatabaseConnection;
-use supinic_fish_bot::{handle_server_message, run};
+use supinic_fish_bot::{handle_server_message, run_wrapper};
 use twitch_irc::message::ServerMessage;
 
 #[inline]
@@ -26,7 +26,9 @@ async fn main() -> Result<()> {
     let client_id = env_var("CLIENT_ID")?;
     let client_secret = env_var("CLIENT_SECRET")?;
     let config = Config {
-        wanted_channels: vec![wanted_channel].into_iter().collect::<HashSet<_>>(),
+        wanted_channels: vec![wanted_channel.clone()]
+            .into_iter()
+            .collect::<HashSet<_>>(),
         username,
         client_id,
         client_secret,
@@ -34,7 +36,9 @@ async fn main() -> Result<()> {
 
     start_bot(
         config,
-        move |conn: DatabaseConnection, client: Client| run(conn, client, rx).boxed(),
+        move |conn: DatabaseConnection, client: Client| {
+            run_wrapper(conn, client, wanted_channel, rx).boxed()
+        },
         move |conn: DatabaseConnection, client: Client, message: ServerMessage| {
             handle_server_message(conn, client, message, tx.clone()).boxed()
         },

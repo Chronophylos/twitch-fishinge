@@ -16,6 +16,7 @@ use twitch_irc::{
 use crate::account::{self, Account};
 
 pub type Client = TwitchIRCClient<SecureTCPTransport, RefreshingLoginCredentials<Account>>;
+pub type IrcError = twitch_irc::Error<SecureTCPTransport, RefreshingLoginCredentials<Account>>;
 
 #[derive(Debug, thiserror::Error, Diagnostic)]
 pub enum Error {

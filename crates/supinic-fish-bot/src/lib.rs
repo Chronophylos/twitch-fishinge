@@ -1,10 +1,12 @@
 use std::time::Duration;
 
-use bot_framework::runner::Client;
+use bot_framework::runner::{Client, IrcError};
+use log::{debug, info, trace, warn};
 use miette::{Diagnostic, IntoDiagnostic, Result, WrapErr};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use sea_orm::DatabaseConnection;
+use tokio::sync::mpsc::Receiver;
 use twitch_irc::message::ServerMessage;
 
 const FISH_RESPONSE_COOLDOWN_PREFIX: &str = "Hol' up partner! You can go fishing again in ";
@@ -21,7 +23,7 @@ static FISH_RESPONSE_FAILURE_REGEX: Lazy<Regex> = Lazy::new(|| {
 });
 const BOT_LOGIN: &str = "supinic";
 
-#[derive(Debug, thiserror::Error, Diagnostic, PartialEq)]
+#[derive(Debug, thiserror::Error, Diagnostic)]
 pub enum Error {
     #[error("bot response malformed")]
     #[diagnostic(code(supinic_fish_bot::malformed_response))]
@@ -30,6 +32,14 @@ pub enum Error {
     #[error("unknown bot response: {0:?}")]
     #[diagnostic(code(supinic_fish_bot::unknown_response))]
     UnknownResponse(String),
+
+    #[error("could not send message")]
+    #[diagnostic(code(supinic_fish_bot::send_message))]
+    SendMessage(#[source] IrcError),
+
+    #[error("channel closed")]
+    #[diagnostic(code(supinic_fish_bot::channel_closed))]
+    ChannelClosed,
 }
 
 pub async fn handle_server_message(
@@ -53,12 +63,84 @@ pub async fn handle_server_message(
     Ok(())
 }
 
-pub async fn run(
+pub async fn run_wrapper(
     _conn: DatabaseConnection,
-    _client: Client,
-    rx: tokio::sync::mpsc::Receiver<String>,
+    client: Client,
+    channel: String,
+    rx: Receiver<String>,
 ) -> Result<()> {
-    todo!()
+    tokio::spawn(async move {
+        if let Err(e) = run(client, channel, rx).await {
+            log::error!("error in main task: {}", e);
+        }
+    });
+
+    Ok(())
+}
+
+async fn run(client: Client, channel: String, mut rx: Receiver<String>) -> Result<(), Error> {
+    loop {
+        client
+            .say(channel.clone(), "$fish".to_string())
+            .await
+            .map_err(Error::SendMessage)?;
+
+        // TODO: handle timeout
+        let Some(message) = rx.recv().await else {
+            return Err(Error::ChannelClosed);
+        };
+
+        let response = match FishResponse::parse(&message) {
+            Ok(response) => response,
+            Err(e) => {
+                warn!("failed to parse fish response: {}", e);
+                continue;
+            }
+        };
+
+        debug!("fish response: {:?}", response);
+
+        match response.kind {
+            FishResponseKind::Success { catch, length } => {
+                trace!("caught fish: {catch} @ {length} cm");
+
+                sell_all(client.clone(), &mut rx, channel.clone()).await?;
+            }
+            FishResponseKind::Failure {
+                junk: Some(junk), ..
+            } => {
+                trace!("caught junk: {}", junk);
+
+                sell_all(client.clone(), &mut rx, channel.clone()).await?;
+            }
+            FishResponseKind::Failure { .. } => {
+                trace!("no junk caught");
+            }
+            FishResponseKind::Cooldown => {
+                trace!("command is on cooldown");
+            }
+        }
+
+        info!("sleeping for {:?}", response.cooldown);
+        tokio::time::sleep(response.cooldown).await;
+    }
+}
+
+async fn sell_all(client: Client, rx: &mut Receiver<String>, channel: String) -> Result<(), Error> {
+    client
+        .say(channel, "$fish sell all".to_string())
+        .await
+        .map_err(Error::SendMessage)?;
+
+    // TODO: handle timeout
+    let Some(message) = rx.recv().await else {
+        return Err(Error::ChannelClosed);
+    };
+
+    // TODO: parse sell response
+    dbg!(message);
+
+    Ok(())
 }
 
 #[derive(Debug, PartialEq)]
@@ -209,20 +291,15 @@ mod tests {
             #[test]
             fn returns_malformed_response_when_missing_comma() {
                 let result = FishResponse::parse("test").unwrap_err();
-                let expected = Error::MalformedResponse {
-                    reason: "no comma found",
-                    text: "test".to_string(),
-                };
 
-                assert_eq!(result, expected);
+                assert!(matches!(result, Error::MalformedResponse { .. }));
             }
 
             #[test]
             fn returns_unknown_response() {
                 let result = FishResponse::parse("test, test").unwrap_err();
-                let expected = Error::UnknownResponse("test".to_string());
 
-                assert_eq!(result, expected);
+                assert!(matches!(result, Error::UnknownResponse { .. }));
             }
 
             #[test]
