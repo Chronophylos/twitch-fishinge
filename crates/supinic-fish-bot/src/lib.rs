@@ -52,7 +52,7 @@ pub async fn handle_server_message(
         ServerMessage::Privmsg(msg)
             if msg.sender.login == BOT_LOGIN && msg.message_text.starts_with(&username) =>
         {
-            Message::Bot(msg.message_text.to_string())
+            Message::Bot(msg.message_text)
         }
         _ => return Ok(()),
     };

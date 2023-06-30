@@ -91,7 +91,7 @@ where
 fn register_signals() -> Result<(Arc<Notify>, signal_hook_tokio::Handle, JoinHandle<()>), Error> {
     info!("Registering signals");
 
-    let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT]).map_err(Error::RegisterSignals)?;
+    let signals = Signals::new([SIGINT, SIGTERM, SIGQUIT]).map_err(Error::RegisterSignals)?;
     let notify = Arc::new(Notify::new());
 
     let handle = signals.handle();

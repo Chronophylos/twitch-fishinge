@@ -144,12 +144,12 @@ impl FishResponse {
                 let seconds = captures
                     .name("seconds")
                     .map(|m| m.as_str().parse::<f32>().unwrap())
-                    .map(|s| Duration::from_secs_f32(s))
+                    .map(Duration::from_secs_f32)
                     .unwrap_or(Duration::ZERO);
                 let milliseconds = captures
                     .name("milliseconds")
                     .map(|m| m.as_str().parse::<u64>().unwrap())
-                    .map(|ms| Duration::from_millis(ms))
+                    .map(Duration::from_millis)
                     .unwrap_or(Duration::ZERO);
 
                 Ok(Self {
