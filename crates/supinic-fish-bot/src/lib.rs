@@ -97,7 +97,13 @@ async fn run(client: Client, channel: String, mut rx: Receiver<Message>) -> Resu
     }
 
     loop {
-        let message = send_command(&client, &mut rx, channel.clone(), "$fish".to_string()).await?;
+        let message = send_command(
+            &client,
+            &mut rx,
+            channel.clone(),
+            "$fish skipStory:true".to_string(),
+        )
+        .await?;
 
         debug!("parsing response");
         let response = match FishResponse::parse(&message) {
